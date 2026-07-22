@@ -280,11 +280,22 @@ The library bundles **no** transit handlers. Inject your app-wide handlers (e.g.
 With no handlers, the serializer still works — plain data round-trips and
 `java.time` values fall through to the `java-object` box.
 
+## Example
+
+[`example/`](example/) is a very minimalistic Integrant + Telemere app that
+uses the library the way a real consumer does (modeled on `digital-worker-poc`),
+boiled down to the `dummy` and `dummy-parent` workflows. It wires workflows as
+`#ig/refset :dbos/workflow` Integrant components, a HikariCP datasource, a
+`:dbos/instance` component around `create`/`launch!`/`shutdown!`, and Trove →
+Telemere logging. The live-DBOS integration suite boots this system, so the
+library gets exercised through realistic consumer wiring. See
+[`example/README.md`](example/README.md).
+
 ## Testing
 
 ```bash
 ./bin/kaocha                 # unit suite (no database needed)
-./bin/kaocha integration     # live-DBOS suite (needs Postgres)
+./bin/kaocha integration     # live-DBOS suite (boots example/, needs Postgres)
 ```
 
 The integration suite reads its database config from env vars:

@@ -1,0 +1,18 @@
+;; Minimal Integrant system for the dbos-clj example.
+;;
+;; Workflow definitions are Integrant keys deriving :dbos/workflow; the
+;; :dbos/instance component collects them with #ig/refset :dbos/workflow
+;; (the same pattern digital-worker-poc uses). DB credentials default here
+;; and are overlaid from the environment by dbos.example.system/config.
+{:example/datasource {:jdbc-url "jdbc:postgresql://localhost:5432/dbos_clj_test"
+                      :username "postgres"
+                      :password "postgres"
+                      :max-pool-size 4}
+
+ :dbos.example.workflow/dummy {:greeting "hello"}
+ :dbos.example.workflow/dummy-parent {}
+ :dbos.example.workflow/context-probe {}
+
+ :dbos/instance {:datasource #ig/ref :example/datasource
+                 :app-name "dbos-example"
+                 :workflows #ig/refset :dbos/workflow}}

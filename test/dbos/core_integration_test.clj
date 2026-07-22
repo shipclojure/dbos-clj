@@ -1,10 +1,14 @@
 (ns dbos.core-integration-test
-  "Live-DBOS tests. Boots a real DBOS instance against a throwaway Postgres
-  and exercises the dummy + dummy-parent workflows end-to-end through the
-  executor and the transit serializer.
+  "Live-DBOS tests. Boot the minimalistic Integrant example
+  (`dbos.example.system`, under example/) against a throwaway Postgres and
+  exercise the dummy + dummy-parent workflows end-to-end through the executor
+  and the transit serializer — the library used exactly as a real consumer
+  wires it, rather than ad-hoc setup.
 
   Proves the durable-execution guarantees (completion, same-id replay,
-  implicit parent/child linkage) rather than any domain logic.
+  implicit parent/child linkage) and the consumer-facing surfaces (Integrant
+  lifecycle, client enqueue/query, step-context propagation) rather than any
+  domain logic.
 
   Requires a reachable Postgres. Configure via env vars (defaults in
   parens):
@@ -12,60 +16,49 @@
     DBOS_TEST_DB_USER      (postgres)
     DBOS_TEST_DB_PASSWORD  (postgres)
 
-  DBOS creates its own system schema (:migrate? true). Tagged :integration
-  so the default unit suite (which needs no database) stays green."
+  DBOS creates its own system schema. Tagged :integration so the default unit
+  suite (which needs no database) stays green."
   (:require
    [clojure.test :refer [deftest is testing use-fixtures]]
    [dbos.client :as client]
    [dbos.core :as core]
-   [dbos.dummy-workflow :as dummy]
-   [dbos.query :as query])
-  (:import
-   (dev.dbos.transact.workflow Queue)))
+   [dbos.example.serializer :as serializer]
+   [dbos.example.system :as system]
+   [dbos.example.workflows :as workflows]
+   [dbos.query :as query]))
 
-(def ^:private test-queue-name "dbos-clj-test-queue")
+(def ^:private example-queue-name system/queue-name)
 
 (defn- env [k default] (or (System/getenv k) default))
-
-(defn- test-config []
-  {:app-name "dbos-clj-test"
-   :executor-id "dbos-clj-test-executor"
-   :database-url (env "DBOS_TEST_DATABASE_URL"
-                      "jdbc:postgresql://localhost:5432/dbos_clj_test")
-   :db-user (env "DBOS_TEST_DB_USER" "postgres")
-   :db-password (env "DBOS_TEST_DB_PASSWORD" "postgres")
-   :migrate? true})
 
 (def ^:private ^:dynamic *instance* nil)
 (def ^:private ^:dynamic *client* nil)
 
-(defn- with-dbos-system [f]
-  (let [instance (core/create
-                  {:config (test-config)
-                   :queues [(-> (Queue. test-queue-name)
-                                (.withWorkerConcurrency (int 4)))]
-                   :workflows dummy/definitions})
-        cfg (test-config)
+(defn- with-example-system [f]
+  (let [sys (system/start!)
         the-client (client/create-client
-                    {:database-url (:database-url cfg)
-                     :db-user (:db-user cfg)
-                     :db-password (:db-password cfg)})]
-    (core/launch! instance)
+                    {:database-url (env "DBOS_TEST_DATABASE_URL"
+                                        "jdbc:postgresql://localhost:5432/dbos_clj_test")
+                     :db-user (env "DBOS_TEST_DB_USER" "postgres")
+                     :db-password (env "DBOS_TEST_DB_PASSWORD" "postgres")
+                     ;; the client must share the instance's serializer so the
+                     ;; two agree on the wire format (java.time handlers, etc.)
+                     :serializer (serializer/transit-serializer)})]
     (try
-      (binding [*instance* instance
+      (binding [*instance* (:dbos/instance sys)
                 *client* the-client]
         (f))
       (finally
         (.close the-client)
-        (core/shutdown! instance)))))
+        (system/stop! sys)))))
 
-(use-fixtures :once with-dbos-system)
+(use-fixtures :once with-example-system)
 
 (defn- start-dummy! [wf-id input]
-  (core/start-workflow! *instance* :dbos.dummy/dummy wf-id input))
+  (core/start-workflow! *instance* :dbos.example/dummy wf-id input))
 
 (defn- start-parent! [wf-id input]
-  (core/start-workflow! *instance* :dbos.dummy/dummy-parent wf-id input))
+  (core/start-workflow! *instance* :dbos.example/dummy-parent wf-id input))
 
 (deftest ^:integration dummy-workflow-test
   (let [wf-id (str "test-dummy-" (random-uuid))
@@ -76,6 +69,9 @@
       (is (= :completed (:workflow/status result)))
       (is (uuid? (:workflow/stamp-id result)))
       (is (inst? (:workflow/stamped-at result))))
+
+    (testing "the injected java.time handler round-trips a real Instant"
+      (is (instance? java.time.Instant (:workflow/stamped-at result))))
 
     (testing "the handle carries the requested workflow id"
       (is (= wf-id (.workflowId handle))))
@@ -107,13 +103,13 @@
 (deftest ^:integration start-workflow-validation-test
   (testing "starting an unregistered workflow name throws synchronously"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Workflow not registered"
-                          (core/start-workflow! *instance* :dbos.dummy/nope {} {})))))
+                          (core/start-workflow! *instance* :dbos.example/nope {} {})))))
 
 (deftest ^:integration client-enqueue-and-query-test
   (let [wf-id (str "test-enqueue-" (random-uuid))
-        handle (client/enqueue-workflow! *client* :dbos.dummy/dummy
+        handle (client/enqueue-workflow! *client* :dbos.example/dummy
                                          {:workflow/id wf-id
-                                          :workflow/queue test-queue-name}
+                                          :workflow/queue example-queue-name}
                                          {:message "enqueued"})
         result @handle]
     (testing "the enqueued workflow runs on the in-process executor"
@@ -137,17 +133,17 @@
   ;; The real question: DBOS runs the workflow body on its OWN worker thread.
   ;; Does the *step-context-fn* set via set-step-context-fn! (a root value)
   ;; actually establish context on THAT thread, visible deep inside the step
-  ;; body? Wire a hook that binds dummy/*ambient-context*, run the probe
+  ;; body? Wire a hook that binds workflows/*ambient-context*, run the probe
   ;; workflow, and assert a read from inside the step saw the step tag.
   (let [test-thread (.getName (Thread/currentThread))
         prev core/*step-context-fn*]
     (try
       (core/set-step-context-fn!
        (fn [ctx f]
-         (binding [dummy/*ambient-context* (merge dummy/*ambient-context* ctx)]
+         (binding [workflows/*ambient-context* (merge workflows/*ambient-context* ctx)]
            (f))))
       (let [wf-id (str "test-ctx-" (random-uuid))
-            result @(core/start-workflow! *instance* :dbos.dummy/context-probe
+            result @(core/start-workflow! *instance* :dbos.example/context-probe
                                           wf-id {})]
         (testing "context set via set-step-context-fn! reaches deep into the step body"
           (is (= {:workflow/step "observe-context"}

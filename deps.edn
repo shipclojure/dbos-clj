@@ -6,6 +6,9 @@
   {:extra-paths ["dev" "test"]}
   :test
   {:extra-deps
-   {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
+   {lambdaisland/kaocha {:mvn/version "1.91.1392"}
+    ;; deps of the example/ consumer the integration tests boot
+    integrant/integrant {:mvn/version "1.0.1"}
+    com.taoensso/telemere {:mvn/version "1.2.0"}}
    :main-opts ["-m" "kaocha.runner"]
-   :extra-paths ["test"]}}}
+   :extra-paths ["test" "example/src" "example/resources"]}}}
