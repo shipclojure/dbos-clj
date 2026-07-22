@@ -1,0 +1,10 @@
+{:deps {dev.dbos/transact {:mvn/version "1.0.0"}
+        com.taoensso/trove {:mvn/version "1.1.0"}}
+ :aliases
+ {:dev
+  {:extra-paths ["dev" "test"]}
+  :test
+  {:extra-deps
+   {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
+   :main-opts ["-m" "kaocha.runner"]
+   :extra-paths ["test"]}}}
