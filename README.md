@@ -315,6 +315,25 @@ docker run -d --name dbos-clj-pg \
   -p 5432:5432 postgres:16
 ```
 
+## Building & releasing
+
+Built with `tools.build` and deployed to Clojars via
+[kaven](https://github.com/kepler16/kaven), through `build/build.clj` (the
+`:build` alias). The version is derived from the latest `vMAJOR.MINOR.PATCH`
+git tag.
+
+```bash
+clojure -T:build build      # -> target/dbos-clj-<version>.jar (needs a v* tag)
+clojure -T:build release    # build, then deploy to Clojars
+clojure -T:build clean
+
+# override the version instead of using a git tag
+clojure -T:build build :version '"0.1.0"'
+```
+
+`release` reads Clojars credentials from `CLOJARS_USERNAME` /
+`CLOJARS_PASSWORD`. `bb build` / `bb release` wrap these.
+
 ## License
 
 TBD.

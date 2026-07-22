@@ -4,8 +4,11 @@
          test {:doc "Run tests."
                :task (apply shell "bin/kaocha" *command-line-args*)}
 
-         build {:doc "Make release build for backend. Requires frontend and content to be built first"
-                :task (shell "clojure -T:build all")}
+         build {:doc "Build the library jar into target/ (version from the latest v* git tag)."
+                :task (shell "clojure -T:build build")}
+
+         release {:doc "Build and deploy the library to Clojars (needs CLOJARS_USERNAME/CLOJARS_PASSWORD)."
+                  :task (shell "clojure -T:build release")}
          format:check {:doc "Check code formatting with cljfmt"
                        :task (shell "cljfmt" "check" "src" "test" "portfolio" "env" "dev" "resources")}
          format:project {:doc "Run cljfmt formatting on the entire codebase"
