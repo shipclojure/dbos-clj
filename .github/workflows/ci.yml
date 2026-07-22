@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    # DBOS creates its own system schema (the integration tests run with
+    # :migrate? true), so no init SQL is needed — just a reachable Postgres.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dbos_clj_test
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/cache-clojure-deps
+        with:
+          key-label: 'tests'
+
+      # Installs the java + clojure versions pinned in .mise.toml
+      - uses: jdx/mise-action@v2
+
+      # Warm the dependency cache once so failures below are about tests.
+      - name: Fetch deps
+        run: clojure -P -M:test
+
+      - name: Unit tests
+        run: clojure -M:test unit
+
+      - name: Integration tests (live DBOS + Postgres)
+        env:
+          DBOS_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/dbos_clj_test
+          DBOS_TEST_DB_USER: postgres
+          DBOS_TEST_DB_PASSWORD: postgres
+        run: clojure -M:test integration

@@ -1,0 +1,12 @@
+{:tasks {lint {:doc "Linting project's code"
+               :task (shell "clj-kondo" "--parallel" "--lint" "src" "test")}
+
+         test {:doc "Run tests."
+               :task (apply shell "bin/kaocha" *command-line-args*)}
+
+         build {:doc "Make release build for backend. Requires frontend and content to be built first"
+                :task (shell "clojure -T:build all")}
+         format:check {:doc "Check code formatting with cljfmt"
+                       :task (shell "cljfmt" "check" "src" "test" "portfolio" "env" "dev" "resources")}
+         format:project {:doc "Run cljfmt formatting on the entire codebase"
+                         :task (shell "cljfmt" "fix" "src" "test" "portfolio" "env" "dev" "resources")}}}

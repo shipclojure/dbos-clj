@@ -1,5 +1,6 @@
 {:deps {dev.dbos/transact {:mvn/version "1.0.0"}
-        com.taoensso/trove {:mvn/version "1.1.0"}}
+        com.taoensso/trove {:mvn/version "1.1.0"}
+        com.cognitect/transit-clj {:mvn/version "1.0.333"}}
  :aliases
  {:dev
   {:extra-paths ["dev" "test"]}

@@ -1,2 +1,9 @@
 #!/usr/bin/env bash
-clojure -M:test:test-runner "$@"
+# Default run: unit suite only (no database required).
+# Run the live-DBOS suite explicitly: ./bin/kaocha integration
+# (needs a reachable Postgres; see dbos.core-integration-test).
+if [ $# -eq 0 ]; then
+  clojure -M:test unit
+else
+  clojure -M:test "$@"
+fi

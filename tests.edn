@@ -1,0 +1,9 @@
+#kaocha/v1
+{:tests [{:id :unit
+          :source-paths ["src"]
+          :test-paths ["test"]
+          :kaocha.filter/skip-meta [:integration]}
+         {:id :integration
+          :source-paths ["src"]
+          :test-paths ["test"]
+          :kaocha.filter/focus-meta [:integration]}]}
