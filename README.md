@@ -28,7 +28,7 @@ The library declares only three hard dependencies: `dev.dbos/transact`,
 | `dbos.serializer`| Transit `json-verbose` `DBOSSerializer` + `java-object` Jackson box. Transit handlers are caller-injected. |
 | `dbos.client`    | `create-client` + `enqueue-workflow!` for out-of-process enqueuing.                                |
 | `dbos.query`     | `list-workflows` / `get-workflow-status` over both a `DBOS` instance and a `DBOSClient`.           |
-| `dbos.constants` | Workflow status constants + status sets.                                                           |
+| `dbos.constants` | Workflow status constants + status sets. Pure-data `.cljc` — frontend-safe (shareable with a ClojureScript UI). |
 
 ## Quick start
 

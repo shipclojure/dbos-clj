@@ -1,5 +1,8 @@
 (ns dbos.constants
   "Constants for DBOS workflow statuses and related status sets.
+
+  Pure data (no interop), so this namespace is `.cljc` and frontend-safe:
+  a ClojureScript UI can share the same status strings/sets as the backend.
   See: dev.dbos.transact.workflow.WorkflowState")
 
 ;; Workflow Status Constants
