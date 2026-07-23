@@ -8,8 +8,7 @@
    (java.io ByteArrayInputStream ByteArrayOutputStream)))
 
 (def serializer-name
-  "Format id recorded in every DBOS row. Frozen — never change once workflow
-  data exists."
+  "Format id recorded in every DBOS row. Frozen once workflow data exists."
   "transit_json_verbose")
 
 (defn- jackson-payload
@@ -41,9 +40,8 @@
         :java-object/jackson jackson-json}))))
 
 (defn- reconstruct-java-object
-  "Rebuild the original object from a java-object box's :java-object/jackson
-  payload. Throws when the class is missing/evolved on this JVM (fail loud
-  rather than hand a step a map where an object should be)."
+  ;; Rebuild from the :java-object/jackson payload; throws (fail loud) when the
+  ;; class is missing/evolved on this JVM.
   [{:java-object/keys [jackson] :as box}]
   (try
     (.deserialize DBOSJavaSerializer/INSTANCE jackson)
@@ -53,9 +51,9 @@
                        :java-object box}
                       cause)))))
 
+;; Reconstructs java-object boxes; any other unknown tag surfaces as
+;; {:transit/tag .. :transit/rep ..} data.
 (def ^:private read-default-handler
-  "Reconstructs java-object boxes; any other unknown tag surfaces as
-  `{:transit/tag .. :transit/rep ..}` data."
   (reify DefaultReadHandler
     (fromRep [_ tag rep]
       (if (= tag "java-object")
@@ -63,18 +61,17 @@
         {:transit/tag tag :transit/rep rep}))))
 
 (defn- unwrap-and-rethrow!
-  "Transit wraps write/read-handler exceptions in a bare RuntimeException;
-  rethrow our marked ex-infos so callers get the original ex-data."
+  ;; Transit wraps handler exceptions in a bare RuntimeException; rethrow our
+  ;; marked ex-infos so callers get the original ex-data.
   [^RuntimeException e]
   (if (some-> (ex-cause e) ex-data :error/type namespace (= "dbos.serializer"))
     (throw (ex-cause e))
     (throw e)))
 
 (defn serialize
-  "Serialize a Clojure value to a Transit json-verbose string. `write-handlers`
-  is optional (caller-injected, e.g. java.time); unhandled types fall through
-  to the java-object box. Throws :dbos.serializer/unserializable when a value
-  has no handler and Jackson can't round-trip it (fail fast)."
+  "Serialize a Clojure value to a Transit json-verbose string. Unhandled types
+  fall through to the java-object box; throws :dbos.serializer/unserializable
+  when a value has no handler and Jackson can't round-trip it."
   ([input] (serialize input nil))
   ([input write-handlers]
    (let [baos (ByteArrayOutputStream.)
@@ -88,10 +85,9 @@
      (.toString baos "UTF-8"))))
 
 (defn deserialize
-  "Deserialize a Transit json-verbose string back to a Clojure value; nil for
-  nil input. `read-handlers` is optional (caller-injected). Throws on
-  unreadable input and on failed java-object reconstruction
-  (:dbos.serializer/reconstruct-failed) — a corrupt row must fail loudly."
+  "Deserialize a Transit json-verbose string to a Clojure value; nil for nil.
+  Throws on unreadable input and on failed java-object reconstruction
+  (:dbos.serializer/reconstruct-failed)."
   ([transit-str] (deserialize transit-str nil))
   ([transit-str read-handlers]
    (when transit-str

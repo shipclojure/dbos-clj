@@ -1,10 +1,6 @@
 (ns dbos.query
-  "Read-side of DBOS: list workflows and get a single workflow's status.
-
-  `getWorkflowStatus`/`listWorkflows` exist with identical signatures on both
-  `DBOS` (in-process) and `DBOSClient` (out-of-process) but share no common
-  Java interface, so this ns exposes a protocol extended onto both. Public fns
-  take Clojure maps in and return Clojure maps out."
+  "Read-side of DBOS (list/status/steps), over both a DBOS instance and a
+  DBOSClient via a protocol. Clojure maps in, Clojure maps out."
   (:import
    (dev.dbos.transact DBOS DBOSClient)
    (dev.dbos.transact.workflow ErrorResult
@@ -14,9 +10,7 @@
                                WorkflowStatus)))
 
 (defn ->list-workflows-input
-  "Convert a Clojure map to a ListWorkflowsInput object.
-
-   Supported keys:
+  "Build a ListWorkflowsInput from a map. Supported keys:
    - :workflow-ids       - Collection of workflow UUIDs to query
    - :workflow-name      - Filter by workflow function name
    - :statuses           - Collection of status strings (PENDING, ERROR, etc.)
@@ -98,12 +92,9 @@
 
 (defprotocol WorkflowQueryable
   "Read-side of DBOS, satisfied by both a DBOS instance and a DBOSClient."
-  (-list-workflows [this input]
-    "List workflows matching the given ListWorkflowsInput.")
-  (-get-workflow-status [this workflow-id]
-    "Return the Optional<WorkflowStatus> for the given workflow id.")
-  (-list-workflow-steps [this workflow-id]
-    "Return the List<StepInfo> recorded for the given workflow id."))
+  (-list-workflows [this input])
+  (-get-workflow-status [this workflow-id])
+  (-list-workflow-steps [this workflow-id]))
 
 (extend-protocol WorkflowQueryable
   DBOS

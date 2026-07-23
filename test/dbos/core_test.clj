@@ -251,52 +251,52 @@
 (deftest workflow-definition-errors-valid-test
   (testing "a minimal valid definition has no errors"
     (is (nil? (core/workflow-definition-errors
-               {:workflow/name :my.ns/wf
+               {:workflow/key :my.ns/wf
                 :workflow/fn (fn [_dbos _input])}))))
 
   (testing "optional keys, when well-formed, are accepted"
     (is (nil? (core/workflow-definition-errors
-               {:workflow/name :my.ns/wf
+               {:workflow/key :my.ns/wf
                 :workflow/fn (fn [_dbos _input])
                 :workflow/max-recovery-attempts 3
                 :workflow/schedule {:cron "* * * * *" :queue "q"}}))))
 
   (testing "a schedule without a :queue is valid (queue is optional)"
     (is (nil? (core/workflow-definition-errors
-               {:workflow/name :my.ns/wf
+               {:workflow/key :my.ns/wf
                 :workflow/fn (fn [_dbos _input])
                 :workflow/schedule {:cron "* * * * *"}})))))
 
 (deftest workflow-definition-errors-invalid-test
-  (testing "non-namespaced :workflow/name is rejected"
-    (is (= [":workflow/name must be a namespaced keyword"]
+  (testing "non-namespaced :workflow/key is rejected"
+    (is (= [":workflow/key must be a namespaced keyword"]
            (core/workflow-definition-errors
-            {:workflow/name :bare
+            {:workflow/key :bare
              :workflow/fn (fn [_ _])}))))
 
   (testing "missing :workflow/fn is rejected"
     (is (some #{":workflow/fn must be a function of [dbos input]"}
               (core/workflow-definition-errors
-               {:workflow/name :my.ns/wf}))))
+               {:workflow/key :my.ns/wf}))))
 
   (testing "non-integer max-recovery-attempts is rejected"
     (is (some #{":workflow/max-recovery-attempts must be an integer"}
               (core/workflow-definition-errors
-               {:workflow/name :my.ns/wf
+               {:workflow/key :my.ns/wf
                 :workflow/fn (fn [_ _])
                 :workflow/max-recovery-attempts "3"}))))
 
   (testing "malformed :workflow/schedule is rejected (missing :cron)"
     (is (some #{":workflow/schedule must be {:cron string} with an optional :queue string"}
               (core/workflow-definition-errors
-               {:workflow/name :my.ns/wf
+               {:workflow/key :my.ns/wf
                 :workflow/fn (fn [_ _])
                 :workflow/schedule {:queue "q"}}))))
 
   (testing "malformed :workflow/schedule is rejected (non-string :queue)"
     (is (some #{":workflow/schedule must be {:cron string} with an optional :queue string"}
               (core/workflow-definition-errors
-               {:workflow/name :my.ns/wf
+               {:workflow/key :my.ns/wf
                 :workflow/fn (fn [_ _])
                 :workflow/schedule {:cron "* * * * *" :queue 42}}))))
 
@@ -306,14 +306,14 @@
 
 (deftest validate-workflow!-test
   (testing "returns the definition unchanged when valid"
-    (let [def {:workflow/name :my.ns/wf :workflow/fn (fn [_ _])}]
+    (let [def {:workflow/key :my.ns/wf :workflow/fn (fn [_ _])}]
       (is (= def (core/validate-workflow! def)))))
 
   (testing "throws ex-info carrying :workflow/validation-errors when invalid"
     (try
-      (core/validate-workflow! {:workflow/name :bare})
+      (core/validate-workflow! {:workflow/key :bare})
       (is false "expected validate-workflow! to throw")
       (catch clojure.lang.ExceptionInfo e
         (let [data (ex-data e)]
-          (is (= :bare (:workflow/name data)))
+          (is (= :bare (:workflow/key data)))
           (is (seq (:workflow/validation-errors data))))))))

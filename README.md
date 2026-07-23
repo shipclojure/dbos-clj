@@ -47,7 +47,7 @@ You should read and familiarise yourself with the official [DBOS docs](https://d
     ;; final result of the workflow
     {:success true}))
 
-(def wf-definition {:workflow/name :workflow/sync-db-with-remote
+(def wf-definition {:workflow/key :workflow/sync-db-with-remote
                     :workflow/fn sync-db-with-remote})
 
 
@@ -189,12 +189,12 @@ By default, `dbos-transact-java` will compute the `app-version` as a SHA from th
 
 ### Child workflows
 
-Inside a workflow body you can fan out to **child workflows** with `start-child-workflow!` (same id-or-opts shapes as above). Call it from the body only - never from inside a step - and start the children in a deterministic order (`mapv`, never `pmap`/`future`), because DBOS keys the parent/child link on call order for replay:
+Inside a workflow body you can fan out to **child workflows** with `start-workflow!` - the same fn used to dispatch top-level workflows. Called from within a workflow body, DBOS records the parent/child link via ambient context. Call it from the body only - never from inside a step - and start the children in a deterministic order (`mapv`, never `pmap`/`future`), because DBOS keys the parent/child link on call order for replay:
 
 ```clojure
 (defn parent [dbos {:keys [ids]}]
   (let [handles (mapv (fn [id]
-                        (dbos/start-child-workflow!
+                        (dbos/start-workflow!
                          dbos :workflow/sync-db-with-remote
                          {:workflow/id (str (dbos/workflow-id) "|" id)}
                          {:user-id id}))
@@ -214,7 +214,7 @@ A workflow runs on a cron schedule when its definition carries a `:workflow/sche
   {:success true})
 
 (def wf-definition
-  {:workflow/name :workflow/nightly-cleanup
+  {:workflow/key :workflow/nightly-cleanup
    :workflow/fn (partial nightly-cleanup {:db db})
    :workflow/schedule {:cron "0 0 3 * * *"}})   ; every day at 03:00:00
 ```
@@ -238,7 +238,7 @@ A schedule can optionally target a queue with `{:cron "..." :queue "my-queue"}`.
 A workflow is a plain Clojure fn. Its shape is `[dbos input]` (or `[deps dbos input]` when you close deps over it with `partial` at registration). `dbos` is the live instance, `input` is a single serializable map - and `input` is the *only* thing persisted for recovery, so it can't carry a db pool or an API client. Close those over the fn instead:
 
 ```clojure
-{:workflow/name :workflow/sync-db-with-remote
+{:workflow/key :workflow/sync-db-with-remote
  :workflow/fn (partial sync-db-with-remote {:db db :api api-client})}
 ```
 
@@ -246,13 +246,13 @@ Names are effectively **frozen**: the keyword's name and namespace become the `w
 
 A workflow definition is just a map. Its keys:
 
-- `:workflow/name` (required) - a **namespaced keyword**; its name/namespace become the DBOS `workflowName`/`className` (the frozen identity above).
+- `:workflow/key` (required) - a **namespaced keyword**; its name/namespace become the DBOS `workflowName`/`className` (the frozen identity above).
 - `:workflow/fn` (required) - the `[dbos input]` fn (or `[deps dbos input]` closed over `deps`).
 - `:workflow/max-recovery-attempts` (optional int) - cap on how many times DBOS retries a workflow that keeps crashing before it's parked as `MAX_RECOVERY_ATTEMPTS_EXCEEDED`. Leave it off for the DBOS default.
 - `:workflow/schedule` (optional) - `{:cron "..."}` (with an optional `:queue`) to run it on a cron; see [Scheduled workflows](#scheduled-workflows).
 
 ```clojure
-{:workflow/name :workflow/sync-db-with-remote
+{:workflow/key :workflow/sync-db-with-remote
  :workflow/fn (partial sync-db-with-remote {:db db :api api-client})
  :workflow/max-recovery-attempts 5}
 ```

@@ -1,11 +1,6 @@
 (ns dbos.client
-  "Out-of-process workflow enqueuing via `DBOSClient`.
-
-  Stateless: `create-client` builds a client wired with the transit
-  serializer; the consumer owns the state cell and lifecycle (`.close` on
-  shutdown). Unlike the core DBOS instance there is no launch/shutdown
-  wrapper — a client holds no running workflows, so it has no drain
-  obligation."
+  "Out-of-process workflow enqueuing via `DBOSClient`. Stateless — the consumer
+  owns the client's lifecycle (`.close` on shutdown)."
   (:require
    [dbos.core :as core]
    [dbos.serializer :as serializer]
@@ -16,8 +11,8 @@
    (javax.sql DataSource)))
 
 (defn create-client
-  "Build a DBOSClient wired with the transit serializer (so callers pass raw
-  Clojure input). The caller owns lifecycle — call `.close` on shutdown.
+  "Build a DBOSClient wired with the transit serializer. Caller owns lifecycle
+  (`.close` on shutdown).
 
   - :datasource   any `javax.sql.DataSource` (e.g. a HikariCP pool), OR
   - :database-url + :db-user + :db-password
@@ -39,13 +34,11 @@
                       {:error/type :dbos.client/missing-datasource})))))
 
 (defn enqueue-workflow!
-  "Enqueue a workflow for async execution by a DBOS worker listening on the
-  target queue (fire-and-forget; progress tracked durably by DBOS). The
-  (workflowName, className) pair is derived from `wf-key` via
-  `workflow-identity`; there's no client-side registry, so a typo'd keyword
-  surfaces as a durable NOT_FOUND at the worker.
+  "Enqueue a workflow for async execution by a DBOS worker on the target queue
+  (fire-and-forget). No client-side registry — a typo'd `wf-key` surfaces as a
+  durable NOT_FOUND at the worker. Returns a deref-able WorkflowHandle.
 
-  - `client`        a DBOSClient from `create-client`
+  - `client`        a DBOSClient instance  (ex. created with `create-client`)
   - `wf-key`        keyword the workflow is registered under
   - `id-or-opts`    a workflow-id string, an options map (see
                     `dbos.core/->workflow-opts`), or a pre-built
@@ -63,9 +56,9 @@
                      {:some \"input\"})
 
   Returns a deref-able `WorkflowHandle`: `@handle` blocks for the result."
-  [^DBOSClient client wf-key id-or-opts workflow-data]
+  [^DBOSClient client wf-key opts workflow-data]
   (let [{:keys [wf-name class-name]} (core/workflow-identity wf-key)
-        opts (core/->workflow-opts id-or-opts)
+        opts (core/->workflow-opts opts)
         built (::core/built opts)]
     (if built
       (do
@@ -99,7 +92,6 @@
                            (object-array [workflow-data])))))))
 
 (defn retrieve-workflow
-  "Retrieve a handle to an existing workflow by `workflow-id` via the client,
-  returning a deref-able `WorkflowHandle` (`@handle` blocks for the result)."
+  "Deref-able handle to an existing workflow by `workflow-id`, via the client."
   [^DBOSClient client workflow-id]
   (core/add-derefable (.retrieveWorkflow client ^String workflow-id)))
