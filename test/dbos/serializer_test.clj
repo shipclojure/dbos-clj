@@ -208,6 +208,13 @@
                 :ex/original-class "clojure.lang.ExceptionInfo"}
                (ex-data result)))))
 
+    (testing "throwable cause chain survives the round-trip"
+      (let [ex (ex-info "outer" {:a 1} (ex-info "inner" {:b 2}))
+            result (.deserializeThrowable ser (.serializeThrowable ser ex))]
+        (is (= "outer" (ex-message result)))
+        (is (= 1 (:a (ex-data result))))
+        (is (= "inner" (ex-message (.getCause result))))))
+
     (testing "plain java exceptions serialize too"
       (let [result (->> (IllegalStateException. "nope")
                         (.serializeThrowable ser)

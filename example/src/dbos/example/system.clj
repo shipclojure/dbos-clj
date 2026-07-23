@@ -9,8 +9,6 @@
                             the RAW DBOS instance (the same object a workflow
                             body receives, and what `dbos.core/start-workflow!`
                             takes);
-  - Telemere is wired as the logging backend through Trove, and each step's
-    {:workflow/step ..} is merged into Telemere's ambient context.
 
   Boot with `start!`, tear down with `stop!`. The static structure lives in
   resources/dbos_example/system.edn; DB creds are overlaid from the
@@ -22,9 +20,7 @@
    ;; loaded for its :dbos/workflow derives + ig/init-key methods
    [dbos.example.workflows]
    [integrant.core :as ig]
-   [taoensso.telemere :as t]
-   [taoensso.trove :as trove]
-   [taoensso.trove.telemere :as trove-telemere])
+   [taoensso.telemere :as t])
   (:import
    (com.zaxxer.hikari HikariConfig HikariDataSource)
    (dev.dbos.transact.workflow Queue)))
@@ -48,22 +44,10 @@
 (defmethod ig/halt-key! :example/datasource [_ ^HikariDataSource ds]
   (.close ds))
 
-;; -- Logging: Trove -> Telemere ----------------------------------------------
-
-(defn configure-logging!
-  "Point the library's Trove facade at Telemere and merge each step's
-  {:workflow/step ..} into Telemere's ambient context, so library step logs
-  and anything logged inside a step body land in Telemere with the step name
-  attached. Called once at startup, before the instance launches."
-  []
-  (trove/set-log-fn! (trove-telemere/get-log-fn))
-  (dbos/set-step-context-fn! (fn [ctx thunk] (t/with-ctx+ ctx (thunk)))))
-
 ;; -- DBOS instance component -------------------------------------------------
 
 (defmethod ig/init-key :dbos/instance
   [_ {:keys [datasource app-name workflows]}]
-  (configure-logging!)
   (let [instance (dbos/create
                   {:config {:datasource datasource
                             :app-name app-name

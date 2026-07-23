@@ -188,7 +188,12 @@
     (Instant), :workflow/queue-partition-key.
 
   Blank string values become nil (absent) rather than reaching the option
-  record ctors, which throw on empty strings."
+  record ctors, which throw on empty strings.
+
+  A pre-built options object is forwarded VERBATIM: :workflow/app-version
+  :latest resolution and the blank-string guards do NOT apply to it — bake in
+  `withAppVersion` yourself. Omitting the id (nil or {}) autogenerates a random
+  UUID (loses idempotent de-dup)."
   [id-or-opts]
   (cond
     (or (instance? StartWorkflowOptions id-or-opts)
@@ -235,6 +240,19 @@
   (-set-latest-app-version! [this version-id]
     (.setLatestApplicationVersion ^DBOSClient this ^String version-id)))
 
+(defprotocol WorkflowControl
+  "cancel/resume, satisfied by both DBOS and DBOSClient."
+  (-cancel-workflow! [this workflow-id])
+  (-resume-workflow! [this workflow-id]))
+
+(extend-protocol WorkflowControl
+  DBOS
+  (-cancel-workflow! [this id] (.cancelWorkflow ^DBOS this ^String id))
+  (-resume-workflow! [this id] (.resumeWorkflow ^DBOS this ^String id))
+  DBOSClient
+  (-cancel-workflow! [this id] (.cancelWorkflow ^DBOSClient this ^String id))
+  (-resume-workflow! [this id] (.resumeWorkflow ^DBOSClient this ^String id)))
+
 (defn version-info->map
   [^VersionInfo vi]
   (when vi
@@ -263,14 +281,13 @@
   version-id)
 
 (defn resolve-app-version
-  ;; nil -> nil; :latest -> current latest version-id; string -> itself; else throws.
+  ;; nil -> nil; :latest -> current latest version-id (nil when none, best-effort);
+  ;; string -> itself; else throws.
   [dbos-or-client v]
   (cond
     (nil? v) nil
-    (= :latest v) (if-let [vi (-get-latest-app-version dbos-or-client)]
-                    (.versionId ^VersionInfo vi)
-                    (throw (ex-info "no latest application version to resolve :workflow/app-version :latest"
-                                    {:workflow/app-version :latest})))
+    (= :latest v) (when-let [vi (-get-latest-app-version dbos-or-client)]
+                    (.versionId ^VersionInfo vi))
     (string? v) v
     :else (throw (ex-info ":workflow/app-version must be a string or :latest"
                           {:workflow/app-version v}))))
@@ -289,6 +306,18 @@
     (workflowId [_] (.workflowId handle))
     (getResult [_] (.getResult handle))
     (getStatus [_] (.getStatus handle))))
+
+(defn cancel-workflow!
+  "Cancel a workflow by id. `dbos-or-client` is a DBOS or a DBOSClient. Returns the id."
+  [dbos-or-client workflow-id]
+  (-cancel-workflow! dbos-or-client workflow-id)
+  workflow-id)
+
+(defn resume-workflow!
+  "Resume a previously-cancelled/paused workflow by id, returning a deref-able
+  WorkflowHandle. `dbos-or-client` is a DBOS or a DBOSClient."
+  [dbos-or-client workflow-id]
+  (add-derefable (-resume-workflow! dbos-or-client workflow-id)))
 
 (defn workflow-identity
   "Split a workflow keyword into {:wf-name <name> :class-name <namespace>} — the
@@ -518,7 +547,10 @@
   - `wf-key`     keyword the workflow was registered under
   - `id-or-opts` a workflow-id string, an options map (see `->workflow-opts`),
                  or a pre-built StartWorkflowOptions — pass a stable id for
-                 idempotent starts
+                 idempotent starts. Omitting the id (pass `nil` or `{}`)
+                 autogenerates a random UUID: no idempotent de-dup, but the id
+                 is still readable via `(workflow-id)` in the body or off the
+                 handle.
   - `input`      the single serializable workflow argument
 
   The workflow id is available inside the body via `(workflow-id)` and on the

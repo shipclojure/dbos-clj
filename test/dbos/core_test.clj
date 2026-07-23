@@ -4,7 +4,8 @@
    [dbos.core :as core])
   (:import
    (dev.dbos.transact DBOSClient$EnqueueOptions StartWorkflowOptions)
-   (dev.dbos.transact.workflow Queue StepOptions)
+   (dev.dbos.transact.config DBOSConfig)
+   (dev.dbos.transact.workflow Queue StepOptions VersionInfo)
    (java.time Duration Instant)))
 
 ;; -- Step macros (no live DBOS; execute-step is redefined) --------------------
@@ -274,6 +275,17 @@
     (is (= :latest
            (:app-version (core/->workflow-opts {:workflow/app-version :latest}))))))
 
+(deftest ->workflow-opts-auto-id-test
+  (testing "omitting the id (nil or {}) yields a nil :workflow-id (autogen path)"
+    (is (nil? (:workflow-id (core/->workflow-opts nil))))
+    (is (nil? (:workflow-id (core/->workflow-opts {})))))
+
+  (testing "->start-options on the auto-id opts builds a bare StartWorkflowOptions"
+    (is (instance? StartWorkflowOptions
+                   (core/->start-options (core/->workflow-opts nil))))
+    (is (instance? StartWorkflowOptions
+                   (core/->start-options (core/->workflow-opts {}))))))
+
 ;; -- resolve-app-version ------------------------------------------------------
 
 (deftest resolve-app-version-test
@@ -285,7 +297,30 @@
 
   (testing "an invalid value throws ex-info"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (core/resolve-app-version nil 42)))))
+                 (core/resolve-app-version nil 42))))
+
+  (testing ":latest resolves to the latest version-id via AppVersioned"
+    (let [stub (reify core/AppVersioned
+                 (-get-latest-app-version [_]
+                   (VersionInfo. "v9" "name" nil nil)))]
+      (is (= "v9" (core/resolve-app-version stub :latest)))))
+
+  (testing ":latest is best-effort — nil when there is no latest version"
+    (let [stub (reify core/AppVersioned
+                 (-get-latest-app-version [_] nil))]
+      (is (nil? (core/resolve-app-version stub :latest))))))
+
+;; -- dbos-config (pure; datasource optional) ----------------------------------
+
+(deftest dbos-config-test
+  (testing "maps the plain config onto the DBOSConfig fields"
+    (let [^DBOSConfig cfg (core/dbos-config {:app-name "test-app"
+                                             :app-version "v1"
+                                             :admin-server? true})]
+      (is (instance? DBOSConfig cfg))
+      (is (= "test-app" (.appName cfg)))
+      (is (= "v1" (.appVersion cfg)))
+      (is (true? (.adminServer cfg))))))
 
 ;; -- workflow-identity --------------------------------------------------------
 

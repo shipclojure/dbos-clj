@@ -14,7 +14,7 @@ wiring instead of ad-hoc setup. The root `:test` alias puts `example/src` and
 | ---- | ---- |
 | `resources/dbos_example/system.edn` | Integrant config. Workflows are keys deriving `:dbos/workflow`; `:dbos/instance` collects them via `#ig/refset :dbos/workflow`. |
 | `src/dbos/example/workflows.clj` | `dummy` / `dummy-parent` (+ a `context-probe` used by the step-context test), each an Integrant workflow component with dependency injection. |
-| `src/dbos/example/system.clj` | `:example/datasource` (HikariCP) and `:dbos/instance` components; wires Trove → Telemere logging; `start!` / `stop!`. |
+| `src/dbos/example/system.clj` | `:example/datasource` (HikariCP) and `:dbos/instance` components; wires; `start!` / `stop!`. |
 | `src/dbos/example/serializer.clj` | The library transit serializer, pre-wired with the app's java.time handlers. |
 | `src/dbos/example/transit_time.clj` | A tiny java.time transit handler set (stand-in for an app-wide one). |
 
@@ -39,9 +39,6 @@ wiring instead of ad-hoc setup. The root `:test` alias puts `example/src` and
   key's config and closed over the workflow fn.
 - **`:dbos/instance` is the raw DBOS instance** returned by
   `dbos.core/create` — pass it straight to `start-workflow!`.
-- **Logging** is Telemere, reached through the library's Trove facade
-  (`trove/set-log-fn!`), with each step's `{:workflow/step ..}` merged into
-  Telemere's context via `dbos.core/set-step-context-fn!`.
 
 ## Running the integration tests
 

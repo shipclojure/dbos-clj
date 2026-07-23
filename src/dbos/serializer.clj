@@ -1,7 +1,6 @@
 (ns dbos.serializer
   (:require
-   [cognitect.transit :as transit]
-   [taoensso.trove :as trove])
+   [cognitect.transit :as transit])
   (:import
    (com.cognitect.transit DefaultReadHandler)
    (dev.dbos.transact.json DBOSJavaSerializer DBOSSerializer)
@@ -31,10 +30,6 @@
    (fn [_] "java-object")
    (fn [value]
      (let [jackson-json (jackson-payload value)]
-       (trove/log! {:level :warn
-                    :id :dbos.serializer/java-object-boxed
-                    :data {:class (.getName (class value))}
-                    :msg "Boxing value with no transit handler as java-object"})
        {:java-object/class (.getName (class value))
         :java-object/repr (pr-str value)
         :java-object/jackson jackson-json}))))
@@ -100,16 +95,21 @@
        (catch RuntimeException e
          (unwrap-and-rethrow! e))))))
 
+(declare data->throwable)
+
 (defn- throwable->data
+  ;; Recurses .getCause so the whole cause chain survives the round-trip.
   [^Throwable throwable]
   {:ex/class (.getName (class throwable))
    :ex/message (ex-message throwable)
-   :ex/data (ex-data throwable)})
+   :ex/data (ex-data throwable)
+   :ex/cause (some-> (.getCause throwable) throwable->data)})
 
 (defn- data->throwable
-  [{:ex/keys [class message data]}]
+  [{:ex/keys [class message data cause]}]
   (ex-info (or message "DBOS workflow error")
-           (assoc (or data {}) :ex/original-class class)))
+           (assoc (or data {}) :ex/original-class class)
+           (when cause (data->throwable cause))))
 
 (defn transit-serializer
   "DBOSSerializer backed by Transit json-verbose, for `DBOSConfig.withSerializer`.
