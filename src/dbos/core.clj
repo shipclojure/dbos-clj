@@ -267,7 +267,10 @@
   [dbos-or-client v]
   (cond
     (nil? v) nil
-    (= :latest v) (.versionId ^VersionInfo (-get-latest-app-version dbos-or-client))
+    (= :latest v) (if-let [vi (-get-latest-app-version dbos-or-client)]
+                    (.versionId ^VersionInfo vi)
+                    (throw (ex-info "no latest application version to resolve :workflow/app-version :latest"
+                                    {:workflow/app-version :latest})))
     (string? v) v
     :else (throw (ex-info ":workflow/app-version must be a string or :latest"
                           {:workflow/app-version v}))))
