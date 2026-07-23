@@ -279,6 +279,19 @@ A step's contract is *"executed at least once, never re-run after it completes."
     {:success true}))                                ; deterministic result
 ```
 
+#### Step retries
+
+Both step macros take a name string **or** an options map to configure DBOS retries. A bare name means no retry (`:max-attempts` 1); a map opts in:
+
+```clojure
+(dbos/run-step dbos {:name "fetch-user" :max-attempts 3
+                     :retry-interval (java.time.Duration/ofSeconds 2)
+                     :backoff-rate 2.0}
+  (api/get-user id))
+```
+
+Map keys: `:name` (required), `:max-attempts`, `:retry-interval` (a `Duration`), `:backoff-rate` (double), `:retry?` (predicate fn of `Throwable` -> boolean). A pre-built `StepOptions` is also accepted.
+
 ### Logging
 
 `dbos-clj` never talks to a logging backend directly - it logs through the [Trove](https://github.com/taoensso/trove) facade. You pick a backend once at startup and wire it in with `trove/set-log-fn!`; from then on every log the library emits (workflow start/stop, step-start, serializer warnings, ...) flows to it.

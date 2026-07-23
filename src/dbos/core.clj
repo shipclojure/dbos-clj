@@ -8,7 +8,7 @@
    (dev.dbos.transact.config DBOSConfig)
    (dev.dbos.transact.execution ThrowingRunnable ThrowingSupplier)
    (dev.dbos.transact.internal DBOSIntegration)
-   (dev.dbos.transact.workflow Queue VersionInfo WorkflowHandle WorkflowSchedule)
+   (dev.dbos.transact.workflow Queue StepOptions VersionInfo WorkflowHandle WorkflowSchedule)
    (java.time Duration Instant)))
 
 (def ^:dynamic *step-context-fn*
@@ -23,49 +23,90 @@
   [f]
   (alter-var-root #'*step-context-fn* (constantly f)))
 
+(defn- non-blank
+  ;; Guards the option-record ctors, which throw on EMPTY strings.
+  [s]
+  (when-not (str/blank? s) s))
+
 ;; -- Step execution -----------------------------------------------------------
 
+(defn ->step-options
+  "Build a StepOptions from a step-name string, an options map, or a pre-built
+  StepOptions (passed through). Map keys: :name (required), :max-attempts,
+  :retry-interval (Duration), :backoff-rate (double), :retry? (predicate fn of
+  Throwable -> boolean)."
+  ^StepOptions
+  [x]
+  (cond
+    (instance? StepOptions x) x
+
+    (or (string? x) (map? x))
+    (let [{:keys [max-attempts retry-interval backoff-rate retry?]} (when (map? x) x)
+          step-name (non-blank (if (map? x) (:name x) x))]
+      (when-not step-name
+        (throw (ex-info "step :name is required and must be a non-blank string"
+                        {:step x})))
+      (cond-> (StepOptions. ^String step-name)
+        max-attempts   (.withMaxAttempts (int max-attempts))
+        retry-interval (.withRetryInterval ^Duration retry-interval)
+        backoff-rate   (.withBackoffRate (double backoff-rate))
+        retry?         (.withShouldRetry
+                        (reify java.util.function.Predicate
+                          (test [_ t] (boolean (retry? t)))))))
+
+    :else (throw (ex-info "step must be a name string, options map, or StepOptions"
+                          {:step x}))))
+
+(defn step-display-name
+  "Display/log name for a step arg (string, options map, or StepOptions)."
+  [x]
+  (cond (string? x) x
+        (map? x) (:name x)
+        (instance? StepOptions x) (.name ^StepOptions x)))
+
 (defn execute-step
-  [^DBOS dbos step-name thunk]
+  "Run a value-returning step via DBOS (result persisted). Redef seam for tests."
+  [^DBOS dbos step thunk]
   (.runStep dbos
-            ^ThrowingSupplier (reify ThrowingSupplier
-                                (execute [_] (thunk)))
-            ^String step-name))
+            ^ThrowingSupplier (reify ThrowingSupplier (execute [_] (thunk)))
+            ^StepOptions (->step-options step)))
 
 (defn execute-do-step!
-  [^DBOS dbos step-name thunk]
+  "Run a side-effect-only step via DBOS (result NOT persisted). Redef seam for tests."
+  [^DBOS dbos step thunk]
   (.runStep dbos
-            ^ThrowingRunnable (reify ThrowingRunnable
-                                (execute [_] (thunk) nil))
-            ^String step-name))
+            ^ThrowingRunnable (reify ThrowingRunnable (execute [_] (thunk) nil))
+            ^StepOptions (->step-options step)))
 
 (defmacro run-step
-  "Run a workflow step that RETURNS a value, persisted for durability/recovery.
-  Use for non-deterministic work (ids, timestamps, API calls) reused later;
-  keep results small (serialized). Body runs inside `*step-context-fn*`."
-  [dbos step-name & body]
-  `(let [step-name# ~step-name]
+  "Run a workflow step that RETURNS a value (persisted for durable replay).
+  `step` is a name string, or an options map for retries (see `->step-options`),
+  or a pre-built StepOptions."
+  [dbos step & body]
+  `(let [step# ~step
+         name# (step-display-name step#)]
      (*step-context-fn*
-      {:workflow/step step-name#}
+      {:workflow/step name#}
       (fn []
         (trove/log! {:level :debug
                      :id :dbos.workflow/step-start
-                     :data {:workflow/step step-name#}})
-        (execute-step ~dbos step-name# (fn [] ~@body))))))
+                     :data {:workflow/step name#}})
+        (execute-step ~dbos step# (fn [] ~@body))))))
 
 (defmacro do-step!
-  "Run a workflow step for SIDE-EFFECTS only; result NOT persisted (cheaper
-  than `run-step` when unused, e.g. DB writes, notifications). Body runs inside
-  `*step-context-fn*`."
-  [dbos step-name & body]
-  `(let [step-name# ~step-name]
+  "Run a workflow step for SIDE-EFFECTS only; result NOT persisted.
+  `step` is a name string, or an options map for retries (see `->step-options`),
+  or a pre-built StepOptions."
+  [dbos step & body]
+  `(let [step# ~step
+         name# (step-display-name step#)]
      (*step-context-fn*
-      {:workflow/step step-name#}
+      {:workflow/step name#}
       (fn []
         (trove/log! {:level :debug
                      :id :dbos.workflow/step-start
-                     :data {:workflow/step step-name#}})
-        (execute-do-step! ~dbos step-name# (fn [] ~@body))))))
+                     :data {:workflow/step name#}})
+        (execute-do-step! ~dbos step# (fn [] ~@body))))))
 
 (defn workflow-sleep
   "Durably sleep the current workflow — the wake-up time is persisted, not the
@@ -91,11 +132,6 @@
       (.orElse nil)))
 
 ;; -- Options builders ---------------------------------------------------------
-
-(defn- non-blank
-  ;; Guards the option-record ctors, which throw on EMPTY strings.
-  [s]
-  (when-not (str/blank? s) s))
 
 (defn ->start-options
   "Build StartWorkflowOptions from a map (or pass a pre-built

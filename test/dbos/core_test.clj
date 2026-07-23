@@ -4,7 +4,7 @@
    [dbos.core :as core])
   (:import
    (dev.dbos.transact DBOSClient$EnqueueOptions StartWorkflowOptions)
-   (dev.dbos.transact.workflow Queue)
+   (dev.dbos.transact.workflow Queue StepOptions)
    (java.time Duration Instant)))
 
 ;; -- Step macros (no live DBOS; execute-step is redefined) --------------------
@@ -29,6 +29,54 @@
         (is (nil? (core/do-step! ::dbos "notify" (swap! effects conj :sent))))
         (is (= [:sent] @effects))
         (is (= ["notify"] @seen))))))
+
+;; -- ->step-options -----------------------------------------------------------
+
+(deftest ->step-options-string-form-test
+  (testing "a string becomes a name-only StepOptions with no retry (maxAttempts 1)"
+    (let [^StepOptions opts (core/->step-options "fetch")]
+      (is (instance? StepOptions opts))
+      (is (= "fetch" (.name opts)))
+      (is (= 1 (.maxAttempts opts))))))
+
+(deftest ->step-options-map-form-test
+  (testing "a map sets the requested retry fields on the StepOptions"
+    (let [interval (Duration/ofSeconds 2)
+          ^StepOptions opts (core/->step-options
+                             {:name "fetch-user"
+                              :max-attempts 3
+                              :retry-interval interval
+                              :backoff-rate 2.0})]
+      (is (= "fetch-user" (.name opts)))
+      (is (= 3 (.maxAttempts opts)))
+      (is (instance? Duration (.retryInterval opts)))
+      (is (= interval (.retryInterval opts)))
+      (is (= 2.0 (.backOffRate opts))))))
+
+(deftest ->step-options-retry?-test
+  (testing ":retry? becomes a Predicate returning the fn's boolean"
+    (let [^StepOptions opts (core/->step-options
+                             {:name "flaky"
+                              :retry? #(instance? IllegalStateException %)})
+          pred (.shouldRetry opts)]
+      (is (true? (.test pred (IllegalStateException. "retry me"))))
+      (is (false? (.test pred (RuntimeException. "nope")))))))
+
+(deftest ->step-options-passthrough-test
+  (testing "a pre-built StepOptions is returned unchanged (identical)"
+    (let [built (StepOptions. "prebuilt")]
+      (is (identical? built (core/->step-options built))))))
+
+(deftest ->step-options-invalid-test
+  (testing "a non-name/map/StepOptions input throws"
+    (is (thrown? clojure.lang.ExceptionInfo (core/->step-options 42)))))
+
+(deftest ->step-options-blank-name-test
+  (testing "a blank or missing step name throws (name is required)"
+    (is (thrown? clojure.lang.ExceptionInfo (core/->step-options "")))
+    (is (thrown? clojure.lang.ExceptionInfo (core/->step-options "   ")))
+    (is (thrown? clojure.lang.ExceptionInfo (core/->step-options {:max-attempts 3})))
+    (is (thrown? clojure.lang.ExceptionInfo (core/->step-options {:name "  "})))))
 
 ;; -- *step-context-fn* hook ---------------------------------------------------
 
