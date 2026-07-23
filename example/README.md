@@ -13,7 +13,7 @@ wiring instead of ad-hoc setup. The root `:test` alias puts `example/src` and
 | File | Role |
 | ---- | ---- |
 | `resources/dbos_example/system.edn` | Integrant config. Workflows are keys deriving `:dbos/workflow`; `:dbos/instance` collects them via `#ig/refset :dbos/workflow`. |
-| `src/dbos/example/workflows.clj` | `dummy` / `dummy-parent` (+ a `context-probe` used by the step-context test), each an Integrant workflow component with dependency injection. |
+| `src/dbos/example/workflows.clj` | `dummy` / `dummy-parent` / `process-item` / `fan-out` / `heartbeat`, each an Integrant workflow component with dependency injection. |
 | `src/dbos/example/system.clj` | `:example/datasource` (HikariCP) and `:dbos/instance` components; wires; `start!` / `stop!`. |
 | `src/dbos/example/serializer.clj` | The library transit serializer, pre-wired with the app's java.time handlers. |
 | `src/dbos/example/transit_time.clj` | A tiny java.time transit handler set (stand-in for an app-wide one). |

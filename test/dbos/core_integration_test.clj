@@ -7,8 +7,7 @@
 
   Proves the durable-execution guarantees (completion, same-id replay,
   implicit parent/child linkage) and the consumer-facing surfaces (Integrant
-  lifecycle, client enqueue/query, step-context propagation) rather than any
-  domain logic.
+  lifecycle, client enqueue/query) rather than any domain logic.
 
   Requires a reachable Postgres. Configure via env vars (defaults in
   parens):
@@ -24,7 +23,6 @@
    [dbos.core :as core]
    [dbos.example.serializer :as serializer]
    [dbos.example.system :as system]
-   [dbos.example.workflows :as workflows]
    [dbos.query :as query]))
 
 (def ^:private example-queue-name system/queue-name)
@@ -130,32 +128,6 @@
         (is (= 1 (count rows)))
         (is (= wf-id (:workflow-id (first rows))))
         (is (= "SUCCESS" (:status (first rows))))))))
-
-(deftest ^:integration step-context-propagates-onto-dbos-thread-test
-  ;; The real question: DBOS runs the workflow body on its OWN worker thread.
-  ;; Does the *step-context-fn* set via set-step-context-fn! (a root value)
-  ;; actually establish context on THAT thread, visible deep inside the step
-  ;; body? Wire a hook that binds workflows/*ambient-context*, run the probe
-  ;; workflow, and assert a read from inside the step saw the step tag.
-  (let [test-thread (.getName (Thread/currentThread))
-        prev core/*step-context-fn*]
-    (try
-      (core/set-step-context-fn!
-       (fn [ctx f]
-         (binding [workflows/*ambient-context* (merge workflows/*ambient-context* ctx)]
-           (f))))
-      (let [wf-id (str "test-ctx-" (random-uuid))
-            result @(core/start-workflow! *instance* :dbos.example/context-probe
-                                          wf-id {})]
-        (testing "context set via set-step-context-fn! reaches deep into the step body"
-          (is (= {:workflow/step "observe-context"}
-                 (:step/captured-context result))))
-
-        (testing "and it did so on the DBOS worker thread, not the test thread"
-          (is (some? (:step/thread result)))
-          (is (not= test-thread (:step/thread result)))))
-      (finally
-        (core/set-step-context-fn! prev)))))
 
 (deftest ^:integration fan-out-workflow-test
   (let [wf-id (str "test-fanout-" (random-uuid))

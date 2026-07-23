@@ -74,23 +74,10 @@
             {:workflow/status :completed
              :heartbeat/at (or at (Instant/now))}))
 
-(def ^:dynamic *ambient-context*
-  "Stand-in for a logging backend's ambient context, bound by a *step-context-fn*."
-  nil)
-
-(defn context-probe-workflow
-  "Return the ambient context + thread visible from inside a step body (proves
-  `*step-context-fn*` wraps the whole body on the worker thread)."
-  [_deps dbos _input]
-  (run-step dbos "observe-context"
-            {:step/captured-context *ambient-context*
-             :step/thread (.getName (Thread/currentThread))}))
-
 ;; -- Integrant workflow components -------------------------------------------
 
 (derive :dbos.example.workflow/dummy :dbos/workflow)
 (derive :dbos.example.workflow/dummy-parent :dbos/workflow)
-(derive :dbos.example.workflow/context-probe :dbos/workflow)
 (derive :dbos.example.workflow/process-item :dbos/workflow)
 (derive :dbos.example.workflow/fan-out :dbos/workflow)
 (derive :dbos.example.workflow/heartbeat :dbos/workflow)
@@ -104,11 +91,6 @@
   [_ deps]
   {:workflow/key :dbos.example/dummy-parent
    :workflow/fn (partial dummy-parent-workflow deps)})
-
-(defmethod ig/init-key :dbos.example.workflow/context-probe
-  [_ deps]
-  {:workflow/key :dbos.example/context-probe
-   :workflow/fn (partial context-probe-workflow deps)})
 
 (defmethod ig/init-key :dbos.example.workflow/process-item [_ deps]
   {:workflow/key :dbos.example/process-item

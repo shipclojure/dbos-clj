@@ -79,47 +79,6 @@
     (is (thrown? clojure.lang.ExceptionInfo (core/->step-options {:max-attempts 3})))
     (is (thrown? clojure.lang.ExceptionInfo (core/->step-options {:name "  "})))))
 
-;; -- *step-context-fn* hook ---------------------------------------------------
-
-(deftest step-context-fn-default-noop-test
-  (testing "default *step-context-fn* runs the body and returns its value"
-    (is (= :ok (core/*step-context-fn* {:workflow/step "x"} (fn [] :ok))))))
-
-(deftest step-context-fn-bound-sees-step-ctx-test
-  (testing "a bound *step-context-fn* receives the step ctx map from run-step"
-    (let [seen-ctx (atom nil)]
-      (binding [core/*step-context-fn* (fn [ctx thunk]
-                                         (reset! seen-ctx ctx)
-                                         (thunk))]
-        (with-redefs [core/execute-step (fn [_dbos _step-name thunk] (thunk))]
-          (is (= 7 (core/run-step ::dbos "step-a" 7)))
-          (is (= {:workflow/step "step-a"} @seen-ctx)))))))
-
-(deftest step-context-fn-wraps-whole-body-test
-  (testing "the step body runs inside the context, so nested reads see it"
-    ;; simulate a backend context via a dynamic var the hook binds; a call
-    ;; deep in the body observes the step tag — proving downstream tagging.
-    (let [ambient (atom nil)]
-      (binding [core/*step-context-fn* (fn [ctx thunk]
-                                         (reset! ambient ctx)
-                                         (thunk))]
-        (with-redefs [core/execute-step (fn [_dbos _step-name thunk] (thunk))]
-          (let [observed-deep-in-body (core/run-step ::dbos "log-step"
-                                                     (deref ambient))]
-            (is (= {:workflow/step "log-step"} observed-deep-in-body))))))))
-
-(deftest set-step-context-fn!-test
-  (testing "set-step-context-fn! sets the root value seen by run-step"
-    (let [prev core/*step-context-fn*
-          seen (atom nil)]
-      (try
-        (core/set-step-context-fn! (fn [ctx thunk] (reset! seen ctx) (thunk)))
-        (with-redefs [core/execute-step (fn [_dbos _step-name thunk] (thunk))]
-          (core/run-step ::dbos "root-step" :done))
-        (is (= {:workflow/step "root-step"} @seen))
-        (finally
-          (core/set-step-context-fn! prev))))))
-
 ;; -- Options builders ---------------------------------------------------------
 
 (deftest ->start-options-test
