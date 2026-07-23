@@ -12,6 +12,9 @@
  :dbos.example.workflow/dummy {:greeting "hello"}
  :dbos.example.workflow/dummy-parent {}
  :dbos.example.workflow/context-probe {}
+ :dbos.example.workflow/process-item {}
+ :dbos.example.workflow/fan-out {:queue "dbos-example-queue"} ; must match system/queue-name
+ :dbos.example.workflow/heartbeat {}
 
  :dbos/instance {:datasource #ig/ref :example/datasource
                  :app-name "dbos-example"

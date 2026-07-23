@@ -72,6 +72,8 @@
                                 (.withWorkerConcurrency (int 4)))]
                    :workflows workflows})]
     (dbos/launch! instance)
+    ;; register cron schedules (e.g. the heartbeat) now that the executor is live
+    (dbos/apply-schedules! instance workflows)
     (t/log! {:id :dbos.example/started :data {:app-name app-name}}
             "DBOS example launched")
     instance))

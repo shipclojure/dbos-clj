@@ -1,12 +1,14 @@
 (ns dbos.core
   (:require
+   [clojure.string :as str]
    [dbos.serializer :as serializer]
    [taoensso.trove :as trove])
   (:import
-   (dev.dbos.transact DBOS DBOSClient$EnqueueOptions StartWorkflowOptions)
+   (dev.dbos.transact DBOS DBOSClient DBOSClient$EnqueueOptions StartWorkflowOptions)
    (dev.dbos.transact.config DBOSConfig)
    (dev.dbos.transact.execution ThrowingRunnable ThrowingSupplier)
-   (dev.dbos.transact.workflow Queue WorkflowHandle WorkflowSchedule)
+   (dev.dbos.transact.internal DBOSIntegration)
+   (dev.dbos.transact.workflow Queue VersionInfo WorkflowHandle WorkflowSchedule)
    (java.time Duration Instant)))
 
 (def ^:dynamic *step-context-fn*
@@ -98,55 +100,88 @@
 (defn get-event
   "Read the latest value published under `event-key` for `workflow-id` (read
   side of `set-event!`). Call from OUTSIDE a workflow. Non-blocking: returns
-  nil immediately when nothing has been published yet."
-  [^DBOS dbos workflow-id event-key]
-  (.orElse (.getEvent dbos workflow-id (name event-key) Duration/ZERO)
-           nil))
+  nil immediately when nothing has been published yet. `dbos-or-client` is
+  either a DBOS instance or a DBOSClient."
+  [dbos-or-client workflow-id event-key]
+  (-> (if (instance? DBOSClient dbos-or-client)
+        (.getEvent ^DBOSClient dbos-or-client workflow-id (name event-key) Duration/ZERO)
+        (.getEvent ^DBOS dbos-or-client workflow-id (name event-key) Duration/ZERO))
+      (.orElse nil)))
 
 ;; -- Options builders ---------------------------------------------------------
 
+(defn- non-blank
+  "Return `s` when it is a non-blank string, else nil. Guards the option-record
+  ctors, which throw IllegalArgumentException on EMPTY strings."
+  [s]
+  (when-not (str/blank? s) s))
+
 (defn ->start-options
-  "Build StartWorkflowOptions from a map:
+  "Build StartWorkflowOptions from a map (or pass a pre-built
+  StartWorkflowOptions straight through unchanged):
   - `:workflow-id` - The id for the workflow instance,
   - `:queue` (name, optional),
   - `:timeout` (Duration),
   - `:deduplication-id` (optional) - ID used to deduplicate the workflow. Separate than `:workflow-id`,
   - `:priority` (int, lower runs first),
-  - `:delay` (Duration)."
+  - `:delay` (Duration),
+  - `:app-version` (String) - pin the workflow to a specific application version,
+  - `:deadline` (Instant),
+  - `:queue-partition-key` (String)."
   ^StartWorkflowOptions
-  [{:keys [workflow-id queue timeout deduplication-id priority]
-    delay-duration :delay}]
-  (cond-> (StartWorkflowOptions.)
-    workflow-id (.withWorkflowId ^String workflow-id)
-    queue (.withQueue ^String queue)
-    timeout (.withTimeout ^Duration timeout)
-    deduplication-id (.withDeduplicationId ^String deduplication-id)
-    priority (.withPriority (int priority))
-    delay-duration (.withDelay ^Duration delay-duration)))
+  [x]
+  (if (instance? StartWorkflowOptions x)
+    x
+    (let [{:keys [workflow-id queue timeout deduplication-id priority
+                  app-version deadline queue-partition-key]
+           delay-duration :delay} x]
+      (cond-> (StartWorkflowOptions.)
+        workflow-id (.withWorkflowId ^String workflow-id)
+        queue (.withQueue ^String queue)
+        timeout (.withTimeout ^Duration timeout)
+        deduplication-id (.withDeduplicationId ^String deduplication-id)
+        priority (.withPriority (int priority))
+        delay-duration (.withDelay ^Duration delay-duration)
+        app-version (.withAppVersion ^String app-version)
+        deadline (.withDeadline ^Instant deadline)
+        queue-partition-key (.withQueuePartitionKey ^String queue-partition-key)))))
 
 (defn ->enqueue-options
-  "Build DBOSClient$EnqueueOptions (for enqueuing via the client) from a map:
+  "Build DBOSClient$EnqueueOptions (for enqueuing via the client) from a map (or
+  pass a pre-built DBOSClient$EnqueueOptions straight through unchanged):
   - `:workflow-name` (required),
   - `:class-name` (required - the DBOS className the worker registered under),
-  - `:queue` (name, optional),
+  - `:queue` (name) - optional here at the builder, but REQUIRED by
+    `enqueue-workflow!`,
   - `:workflow-id` - The id for the workflow instance,
   - `:timeout` (Duration),
   - `:deduplication-id` (optional) - ID used to deduplicate the workflow. Separate than `:workflow-id`,
   - `:priority` (int, lower runs first),
-  - `:delay` (Duration).
+  - `:delay` (Duration),
+  - `:app-version` (String) - pin the workflow to a specific application version,
+  - `:deadline` (Instant),
+  - `:queue-partition-key` (String).
 
   The (:workflow-name, :class-name) pair typically comes from
   `workflow-identity`, so enqueue targets the exact (workflowName, className)
   the worker registered under."
   ^DBOSClient$EnqueueOptions
-  [{:keys [workflow-name class-name queue workflow-id timeout deduplication-id priority]
-    delay-duration :delay}]
-  (cond-> (DBOSClient$EnqueueOptions. ^String workflow-name ^String class-name ^String queue)
-    workflow-id (.withWorkflowId ^String workflow-id)
-    timeout (.withTimeout ^Duration timeout)
-    deduplication-id (.withDeduplicationId ^String deduplication-id)
-    priority (.withPriority (int priority))
-    delay-duration (.withDelay ^Duration delay-duration)))
+  [x]
+  (if (instance? DBOSClient$EnqueueOptions x)
+    x
+    (let [{:keys [workflow-name class-name queue workflow-id timeout
+                  deduplication-id priority app-version deadline
+                  queue-partition-key]
+           delay-duration :delay} x]
+      (cond-> (DBOSClient$EnqueueOptions. ^String workflow-name ^String class-name ^String queue)
+        workflow-id (.withWorkflowId ^String workflow-id)
+        timeout (.withTimeout ^Duration timeout)
+        deduplication-id (.withDeduplicationId ^String deduplication-id)
+        priority (.withPriority (int priority))
+        delay-duration (.withDelay ^Duration delay-duration)
+        app-version (.withAppVersion ^String app-version)
+        deadline (.withDeadline ^Instant deadline)
+        queue-partition-key (.withQueuePartitionKey ^String queue-partition-key)))))
 
 (defn- queue-name
   "The queue name string from either a name string or a Queue instance."
@@ -161,21 +196,121 @@
 (defn ->workflow-opts
   "Normalize the id-or-opts arg accepted by `start-workflow!` /
   `enqueue-workflow!` into the internal options map the builders take. Accepts:
-  - a bare workflow-id string, or
+  - a bare workflow-id string,
+  - a pre-built StartWorkflowOptions or DBOSClient$EnqueueOptions (returned
+    wrapped as `{:dbos.core/built <obj>}` so callers can forward it verbatim), or
   - a map keyed with :workflow/id, :workflow/queue (name string or Queue
     instance), :workflow/timeout, :workflow/deduplication-id,
-    :workflow/priority, :workflow/delay."
+    :workflow/priority, :workflow/delay, :workflow/app-version (a String or the
+    keyword sentinel :latest, passed through unresolved), :workflow/deadline
+    (Instant), :workflow/queue-partition-key.
+
+  Blank string values become nil (absent) rather than reaching the option
+  record ctors, which throw on empty strings."
   [id-or-opts]
-  (if (string? id-or-opts)
-    {:workflow-id id-or-opts}
-    (let [{:workflow/keys [id queue timeout deduplication-id priority]
+  (cond
+    (or (instance? StartWorkflowOptions id-or-opts)
+        (instance? DBOSClient$EnqueueOptions id-or-opts))
+    {::built id-or-opts}
+
+    (string? id-or-opts)
+    {:workflow-id (non-blank id-or-opts)}
+
+    :else
+    (let [{:workflow/keys [id queue timeout deduplication-id priority
+                           app-version deadline queue-partition-key]
            delay-duration :workflow/delay} id-or-opts]
-      {:workflow-id id
-       :queue (queue-name queue)
+      {:workflow-id (non-blank id)
+       :queue (non-blank (queue-name queue))
        :timeout timeout
-       :deduplication-id deduplication-id
+       :deduplication-id (non-blank deduplication-id)
        :priority priority
-       :delay delay-duration})))
+       :delay delay-duration
+       :app-version (if (= :latest app-version)
+                      :latest
+                      (non-blank app-version))
+       :deadline deadline
+       :queue-partition-key (non-blank queue-partition-key)})))
+
+;; -- Application-version targeting --------------------------------------------
+
+(defprotocol AppVersioned
+  "Application-version accessors, satisfied by both a DBOS instance and a
+  DBOSClient (they share the same method names but no common Java interface).
+
+  CAVEAT: forcing an explicit version (or `:latest`) via `:workflow/app-version`
+  OVERRIDES DBOS's normal version pinning. Only safe when the workflow input
+  contract is stable across the versions you span; `:latest` also costs a DB
+  round-trip per call to resolve."
+  (-get-latest-app-version [this]
+    "Return the latest VersionInfo, or nil.")
+  (-list-app-versions [this]
+    "Return a List<VersionInfo> of known application versions.")
+  (-set-latest-app-version! [this version-id]
+    "Pin `version-id` as the latest application version."))
+
+(extend-protocol AppVersioned
+  DBOS
+  (-get-latest-app-version [this] (.getLatestApplicationVersion ^DBOS this))
+  (-list-app-versions [this] (.listApplicationVersions ^DBOS this))
+  (-set-latest-app-version! [this version-id]
+    (.setLatestApplicationVersion ^DBOS this ^String version-id))
+
+  DBOSClient
+  (-get-latest-app-version [this] (.getLatestApplicationVersion ^DBOSClient this))
+  (-list-app-versions [this] (.listApplicationVersions ^DBOSClient this))
+  (-set-latest-app-version! [this version-id]
+    (.setLatestApplicationVersion ^DBOSClient this ^String version-id)))
+
+(defn version-info->map
+  "Convert a VersionInfo record to a Clojure map, or nil for nil."
+  [^VersionInfo vi]
+  (when vi
+    {:version-id (.versionId vi)
+     :version-name (.versionName vi)
+     :version-timestamp (.versionTimestamp vi)
+     :created-at (.createdAt vi)}))
+
+(defn get-latest-app-version
+  "The latest application version as a map {:version-id .. :version-name ..
+  :version-timestamp .. :created-at ..}, or nil. `dbos-or-client` is either a
+  DBOS instance or a DBOSClient.
+
+  CAVEAT: reading/forcing an explicit app version overrides DBOS's normal
+  version pinning — only safe when the workflow input contract is stable
+  across versions."
+  [dbos-or-client]
+  (version-info->map (-get-latest-app-version dbos-or-client)))
+
+(defn list-app-versions
+  "A vector of known application-version maps (see `get-latest-app-version`).
+  `dbos-or-client` is either a DBOS instance or a DBOSClient."
+  [dbos-or-client]
+  (mapv version-info->map (-list-app-versions dbos-or-client)))
+
+(defn set-latest-app-version!
+  "Pin `version-id` (a String) as the latest application version, returning it.
+  `dbos-or-client` is either a DBOS instance or a DBOSClient.
+
+  CAVEAT: this overrides DBOS's normal version pinning — only safe when the
+  workflow input contract is stable across the versions you span."
+  [dbos-or-client version-id]
+  (-set-latest-app-version! dbos-or-client version-id)
+  version-id)
+
+(defn resolve-app-version
+  "Resolve a `:workflow/app-version` value to a concrete version-id string:
+  nil -> nil; `:latest` -> the current latest version-id (one DB round-trip
+  against `dbos-or-client`); a String -> itself; anything else throws. Internal
+  helper shared by `start-workflow!` / `start-child-workflow!` (resolving
+  against the DBOS instance) and `enqueue-workflow!` (against the client)."
+  [dbos-or-client v]
+  (cond
+    (nil? v) nil
+    (= :latest v) (.versionId ^VersionInfo (-get-latest-app-version dbos-or-client))
+    (string? v) v
+    :else (throw (ex-info ":workflow/app-version must be a string or :latest"
+                          {:workflow/app-version v}))))
 
 ;; -- Handles + identity -------------------------------------------------------
 
@@ -217,20 +352,31 @@
   workflow's own thread in deterministic order (sequential reduce/mapv, never
   pmap/future); replay depends on it.
 
-  - `dbos`    the raw DBOS instance (as passed into the workflow fn)
-  - `wf-name` keyword the child workflow was registered under
-  - `opts`    StartWorkflowOptions map, see ->start-options
-  - `input`   the child's single serializable workflow argument"
-  [^DBOS dbos wf-name opts input]
-  (let [integration (.integration dbos)
-        {:keys [wf-name class-name]} (workflow-identity wf-name)
+  - `dbos`   the raw DBOS instance (as passed into the workflow fn)
+  - `wf-key` keyword the child workflow was registered under
+  - `opts`   a workflow-id string, an options map (see `->workflow-opts`), or a
+             pre-built StartWorkflowOptions
+  - `input`  the child's single serializable workflow argument
+
+  The child's workflow id is available inside its body via `(workflow-id)` and
+  on the returned handle — it is NOT injected into `input`."
+  [^DBOS dbos wf-key opts input]
+  (let [^DBOSIntegration integration (.integration dbos)
+        {:keys [wf-name class-name]} (workflow-identity wf-key)
         registered (.orElse (.getRegisteredWorkflow integration wf-name class-name)
                             nil)]
     (when-not registered
-      (throw (ex-info "Workflow not registered" {:workflow/name wf-name})))
-    (add-derefable
-     (.startRegisteredWorkflow integration registered (object-array [input])
-                               (->start-options opts)))))
+      (throw (ex-info "Workflow not registered" {:workflow/name wf-key})))
+    (let [normalized (->workflow-opts opts)
+          built (::built normalized)
+          start-opts (if built
+                       built
+                       (->start-options
+                        (update normalized :app-version
+                                #(resolve-app-version dbos %))))]
+      (add-derefable
+       (.startRegisteredWorkflow integration registered (object-array [input])
+                                 start-opts)))))
 
 ;; -- Configuration ------------------------------------------------------------
 
@@ -257,26 +403,46 @@
   - :executor-id    optional executor id (defaults to DBOS's own)
   - :schema         optional database schema name
   - :listen-queues  optional seq of queue names this executor listens to
-  - :admin-server?  optional; enable the DBOS admin HTTP server
-  - :conductor      optional {:domain .. :api-key ..} for DBOS Conductor"
+
+  Admin HTTP server (independent knobs, mirroring DBOS's own config):
+  - :admin-server?      optional; enable the DBOS admin HTTP server
+  - :admin-server-port  optional int; the admin server port (only applies when
+                        the admin server is enabled; DBOS defaults it otherwise)
+
+  Other runtime knobs (all optional):
+  - :scheduler-polling-interval  a `java.time.Duration` for how often the
+                                 scheduler polls for due scheduled workflows
+  - :use-listen-notify?          boolean; use Postgres LISTEN/NOTIFY for queue
+                                 wakeups (DBOS enables this by default)
+  - :enable-patching?            boolean; toggle DBOS workflow patching support
+  - :conductor                   optional {:domain .. :api-key ..
+                                 :executor-metadata {..}} for DBOS Conductor"
   ^DBOSConfig
   [{:keys [datasource database-url db-user db-password migrate?
            app-name app-version executor-id serializer
-           schema listen-queues admin-server? conductor]}]
+           schema listen-queues admin-server? admin-server-port
+           scheduler-polling-interval use-listen-notify? enable-patching?
+           conductor]}]
   (cond-> (-> (DBOSConfig/defaults app-name)
               (.withSerializer (or serializer (serializer/transit-serializer))))
-    datasource          (.withDataSource datasource)
-    database-url        (.withDatabaseUrl database-url)
-    db-user             (.withDbUser db-user)
-    db-password         (.withDbPassword db-password)
-    (some? migrate?)    (.withMigrate (boolean migrate?))
-    executor-id         (.withExecutorId executor-id)
-    app-version         (.withAppVersion app-version)
-    schema              (.withDatabaseSchema schema)
-    (seq listen-queues) (.withListenQueues (into-array String listen-queues))
-    admin-server?       (.withAdminServer true)
-    (:domain conductor)  (.withConductorDomain (:domain conductor))
-    (:api-key conductor) (.withConductorKey (:api-key conductor))))
+    datasource               (.withDataSource ^javax.sql.DataSource datasource)
+    database-url             (.withDatabaseUrl ^String database-url)
+    db-user                  (.withDbUser ^String db-user)
+    db-password              (.withDbPassword ^String db-password)
+    (some? migrate?)         (.withMigrate (boolean migrate?))
+    executor-id              (.withExecutorId ^String executor-id)
+    app-version              (.withAppVersion ^String app-version)
+    schema                   (.withDatabaseSchema ^String schema)
+    (seq listen-queues)      (.withListenQueues ^"[Ljava.lang.String;" (into-array String listen-queues))
+    admin-server?            (.withAdminServer true)
+    admin-server-port        (.withAdminServerPort (int admin-server-port))
+    scheduler-polling-interval (.withSchedulerPollingInterval ^Duration scheduler-polling-interval)
+    (some? use-listen-notify?) (.withUseListenNotify (boolean use-listen-notify?))
+    (some? enable-patching?) (.withEnablePatching (boolean enable-patching?))
+    (:domain conductor)      (.withConductorDomain ^String (:domain conductor))
+    (:api-key conductor)     (.withConductorKey ^String (:api-key conductor))
+    (:executor-metadata conductor) (.withConductorExecutorMetadata
+                                    ^java.util.Map (:executor-metadata conductor))))
 
 ;; -- Workflow definition validation (pure Clojure, no Malli) ------------------
 
@@ -423,16 +589,20 @@
 
   - `dbos`          the DBOS instance returned by `create`
   - `workflow-name` keyword the workflow was registered under
-  - `id-or-opts`    a workflow-id string, or an options map (see
-                    `->workflow-opts`) — pass a stable id for idempotent starts
+  - `id-or-opts`    a workflow-id string, an options map (see
+                    `->workflow-opts`), or a pre-built StartWorkflowOptions —
+                    pass a stable id for idempotent starts
   - `input`         the single workflow argument, a serializable map — the
                     only thing persisted for recovery (deps and the DBOS
                     instance are closed over at registration)
 
+  The workflow id is available inside the body via `(workflow-id)` and on the
+  returned handle — it is NOT injected into `input`.
+
   (start-workflow! dbos :my/wf \"wf-1\" {:some \"input\"})
   (start-workflow! dbos :my/wf {:workflow/id \"wf-1\" :workflow/queue q} {:some \"input\"})"
   [^DBOS dbos workflow-name id-or-opts input]
-  (let [integration (.integration dbos)
+  (let [^DBOSIntegration integration (.integration dbos)
         {:keys [wf-name class-name]} (workflow-identity workflow-name)
         registered (-> (.getRegisteredWorkflow integration wf-name class-name)
                        (.orElse nil))]
@@ -440,11 +610,18 @@
       (throw (ex-info "Workflow not registered"
                       {:workflow/name workflow-name})))
 
-    (add-derefable
-     (.startRegisteredWorkflow integration
-                               registered
-                               (object-array [input])
-                               (->start-options (->workflow-opts id-or-opts))))))
+    (let [normalized (->workflow-opts id-or-opts)
+          built (::built normalized)
+          start-opts (if built
+                       built
+                       (->start-options
+                        (update normalized :app-version
+                                #(resolve-app-version dbos %))))]
+      (add-derefable
+       (.startRegisteredWorkflow integration
+                                 registered
+                                 (object-array [input])
+                                 start-opts)))))
 
 (defn apply-schedules!
   "Upsert a DB-backed WorkflowSchedule row for every definition carrying a

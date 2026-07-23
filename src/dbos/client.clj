@@ -47,10 +47,16 @@
 
   - `client`        a DBOSClient from `create-client`
   - `wf-key`        keyword the workflow is registered under
-  - `id-or-opts`    a workflow-id string, or an options map (see
-                    `dbos.core/->workflow-opts`). A queue is REQUIRED — set
-                    :workflow/queue (a name string or Queue instance)
-  - `workflow-data` input map; `:workflow/id` is merged in automatically
+  - `id-or-opts`    a workflow-id string, an options map (see
+                    `dbos.core/->workflow-opts`), or a pre-built
+                    DBOSClient$EnqueueOptions. A queue is REQUIRED for the
+                    string/map forms — set :workflow/queue (a name string or
+                    Queue instance); a pre-built options object encodes its own
+                    queue, so the check is skipped for it
+  - `workflow-data` the single serializable workflow argument
+
+  The workflow id is available inside the body via `(dbos.core/workflow-id)`
+  and on the returned handle — it is NOT injected into `workflow-data`.
 
   (enqueue-workflow! client :my/wf
                      {:workflow/id \"wf-1\" :workflow/queue \"my-queue\"}
@@ -59,21 +65,41 @@
   Returns a deref-able `WorkflowHandle`: `@handle` blocks for the result."
   [^DBOSClient client wf-key id-or-opts workflow-data]
   (let [{:keys [wf-name class-name]} (core/workflow-identity wf-key)
-        {:keys [workflow-id queue] :as opts} (core/->workflow-opts id-or-opts)]
-    (when-not queue
-      (throw (ex-info "enqueue-workflow! requires a queue - set :workflow/queue"
-                      {:error/type :dbos.client/missing-queue
-                       :workflow/key wf-key
-                       :workflow/id workflow-id})))
-    (trove/log! {:id :dbos.client.workflow/enqueue
-                 :data {:workflow/key wf-key
-                        :workflow/class class-name
-                        :workflow/id workflow-id
-                        :queue queue}})
-    (core/add-derefable
-     (.enqueueWorkflow client
-                       (core/->enqueue-options (assoc opts
-                                                      :workflow-name wf-name
-                                                      :class-name class-name))
-                       (object-array [(cond-> workflow-data
-                                        workflow-id (assoc :workflow/id workflow-id))])))))
+        opts (core/->workflow-opts id-or-opts)
+        built (::core/built opts)]
+    (if built
+      (do
+        (trove/log! {:id :dbos.client.workflow/enqueue
+                     :data {:workflow/key wf-key
+                            :workflow/class class-name
+                            :workflow/built true}})
+        (core/add-derefable
+         (.enqueueWorkflow client
+                           (core/->enqueue-options built)
+                           (object-array [workflow-data]))))
+      (let [{:keys [workflow-id queue]} opts]
+        (when-not queue
+          (throw (ex-info "enqueue-workflow! requires a queue - set :workflow/queue"
+                          {:error/type :dbos.client/missing-queue
+                           :workflow/key wf-key
+                           :workflow/id workflow-id})))
+        (trove/log! {:id :dbos.client.workflow/enqueue
+                     :data {:workflow/key wf-key
+                            :workflow/class class-name
+                            :workflow/id workflow-id
+                            :queue queue}})
+        (core/add-derefable
+         (.enqueueWorkflow client
+                           (core/->enqueue-options
+                            (-> opts
+                                (assoc :workflow-name wf-name
+                                       :class-name class-name)
+                                (update :app-version
+                                        #(core/resolve-app-version client %))))
+                           (object-array [workflow-data])))))))
+
+(defn retrieve-workflow
+  "Retrieve a handle to an existing workflow by `workflow-id` via the client,
+  returning a deref-able `WorkflowHandle` (`@handle` blocks for the result)."
+  [^DBOSClient client workflow-id]
+  (core/add-derefable (.retrieveWorkflow client ^String workflow-id)))

@@ -5,7 +5,7 @@
   (:import
    (dev.dbos.transact DBOSClient$EnqueueOptions StartWorkflowOptions)
    (dev.dbos.transact.workflow Queue)
-   (java.time Duration)))
+   (java.time Duration Instant)))
 
 ;; -- Step macros (no live DBOS; execute-step is redefined) --------------------
 
@@ -98,6 +98,58 @@
                                             :priority 1})]
       (is (instance? DBOSClient$EnqueueOptions opts)))))
 
+(deftest ->start-options-per-field-fidelity-test
+  (testing "every requested field round-trips onto the StartWorkflowOptions"
+    (let [delay (Duration/ofSeconds 1)
+          deadline (Instant/parse "2030-01-01T00:00:00Z")
+          ^StartWorkflowOptions opts (core/->start-options
+                                      {:workflow-id "wf-1"
+                                       :queue "q"
+                                       :deduplication-id "dd"
+                                       :priority 3
+                                       :delay delay
+                                       :deadline deadline
+                                       :queue-partition-key "pk"
+                                       :app-version "v9"})]
+      (is (= "wf-1" (.workflowId opts)))
+      (is (= "q" (.queueName opts)))
+      (is (= "dd" (.deduplicationId opts)))
+      (is (= 3 (.priority opts)))
+      (is (= delay (.delay opts)))
+      (is (= deadline (.deadline opts)))
+      (is (= "pk" (.queuePartitionKey opts)))
+      (is (= "v9" (.appVersion opts))))))
+
+(deftest ->enqueue-options-per-field-fidelity-test
+  (testing "every requested field round-trips onto the DBOSClient$EnqueueOptions"
+    (let [^DBOSClient$EnqueueOptions opts (core/->enqueue-options
+                                           {:workflow-name "wf"
+                                            :class-name "my.ns"
+                                            :queue "q"
+                                            :workflow-id "wf-2"
+                                            :priority 1
+                                            :deduplication-id "dd"
+                                            :app-version "v9"
+                                            :queue-partition-key "pk"})]
+      (is (= "wf" (.workflowName opts)))
+      (is (= "my.ns" (.className opts)))
+      (is (= "q" (.queueName opts)))
+      (is (= "wf-2" (.workflowId opts)))
+      (is (= 1 (.priority opts)))
+      (is (= "dd" (.deduplicationId opts)))
+      (is (= "v9" (.appVersion opts)))
+      (is (= "pk" (.queuePartitionKey opts))))))
+
+(deftest ->start-options-passthrough-test
+  (testing "a pre-built StartWorkflowOptions is returned unchanged (identical)"
+    (let [^StartWorkflowOptions built (.withWorkflowId (StartWorkflowOptions.) "wf-x")]
+      (is (identical? built (core/->start-options built))))))
+
+(deftest ->enqueue-options-passthrough-test
+  (testing "a pre-built DBOSClient$EnqueueOptions is returned unchanged (identical)"
+    (let [^DBOSClient$EnqueueOptions built (DBOSClient$EnqueueOptions. "wf" "my.ns" "q")]
+      (is (identical? built (core/->enqueue-options built))))))
+
 ;; -- ->workflow-opts (start/enqueue caller surfaces) --------------------------
 
 (deftest ->workflow-opts-string-form-test
@@ -111,7 +163,10 @@
             :timeout nil
             :deduplication-id "dd"
             :priority 2
-            :delay nil}
+            :delay nil
+            :app-version nil
+            :deadline nil
+            :queue-partition-key nil}
            (core/->workflow-opts {:workflow/id "wf-1"
                                   :workflow/queue "my-queue"
                                   :workflow/deduplication-id "dd"
@@ -125,6 +180,64 @@
   (testing "an invalid queue value throws"
     (is (thrown? clojure.lang.ExceptionInfo
                  (core/->workflow-opts {:workflow/queue 42})))))
+
+(deftest ->workflow-opts-built-passthrough-test
+  (testing "a pre-built StartWorkflowOptions is wrapped under ::core/built"
+    (let [^StartWorkflowOptions built (.withWorkflowId (StartWorkflowOptions.) "wf-b")
+          opts (core/->workflow-opts built)]
+      (is (contains? opts :dbos.core/built))
+      (is (identical? built (::core/built opts))))))
+
+(deftest ->start-options-on-built-opts-test
+  (testing "the built object from ->workflow-opts feeds ->start-options unchanged"
+    (let [^StartWorkflowOptions built (.withWorkflowId (StartWorkflowOptions.) "wf-c")
+          built-from-opts (::core/built (core/->workflow-opts built))]
+      (is (identical? built (core/->start-options built-from-opts))))))
+
+(deftest ->workflow-opts-blank-guard-test
+  (testing "blank/empty strings are treated as absent (nil) internal values"
+    (let [opts (core/->workflow-opts {:workflow/id ""
+                                      :workflow/queue ""
+                                      :workflow/deduplication-id ""
+                                      :workflow/app-version ""
+                                      :workflow/queue-partition-key ""})]
+      (is (nil? (:workflow-id opts)))
+      (is (nil? (:queue opts)))
+      (is (nil? (:deduplication-id opts)))
+      (is (nil? (:app-version opts)))
+      (is (nil? (:queue-partition-key opts)))))
+
+  (testing "a whitespace-only string is also treated as blank"
+    (is (nil? (:workflow-id (core/->workflow-opts {:workflow/id "  "})))))
+
+  (testing "->start-options on an all-blank opts map builds a bare object"
+    (let [opts (core/->workflow-opts {:workflow/id ""
+                                      :workflow/queue ""
+                                      :workflow/deduplication-id ""
+                                      :workflow/app-version ""
+                                      :workflow/queue-partition-key ""})]
+      (is (instance? StartWorkflowOptions (core/->start-options opts))))))
+
+(deftest ->workflow-opts-app-version-test
+  (testing "a string app-version lands under :app-version"
+    (is (= "v1" (:app-version (core/->workflow-opts {:workflow/app-version "v1"})))))
+
+  (testing "the :latest sentinel passes through unresolved"
+    (is (= :latest
+           (:app-version (core/->workflow-opts {:workflow/app-version :latest}))))))
+
+;; -- resolve-app-version ------------------------------------------------------
+
+(deftest resolve-app-version-test
+  (testing "nil resolves to nil (no round-trip)"
+    (is (nil? (core/resolve-app-version nil nil))))
+
+  (testing "a plain string resolves to itself"
+    (is (= "v9" (core/resolve-app-version nil "v9"))))
+
+  (testing "an invalid value throws ex-info"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (core/resolve-app-version nil 42)))))
 
 ;; -- workflow-identity --------------------------------------------------------
 

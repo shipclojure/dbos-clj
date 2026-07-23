@@ -115,7 +115,9 @@
     (testing "the enqueued workflow runs on the in-process executor"
       (is (= "enqueued" (:message result)))
       (is (= :completed (:workflow/status result)))
-      (is (= wf-id (:workflow/id result))))
+      ;; the workflow id is NOT injected into the input — it rides on the
+      ;; handle instead
+      (is (= wf-id (.workflowId handle))))
 
     (testing "get-workflow-status works via the client"
       (is (= "SUCCESS" (:status (query/get-workflow-status *client* wf-id)))))
@@ -154,3 +156,33 @@
           (is (not= test-thread (:step/thread result)))))
       (finally
         (core/set-step-context-fn! prev)))))
+
+(deftest ^:integration fan-out-workflow-test
+  (let [wf-id (str "test-fanout-" (random-uuid))
+        result @(core/start-workflow! *instance* :dbos.example/fan-out wf-id {:n 5})]
+    (testing "gathers input, fans out 5 children, aggregates their results"
+      (is (= :completed (:workflow/status result)))
+      (is (= 5 (:n result)))
+      ;; 1^2 + 2^2 + 3^2 + 4^2 + 5^2 = 55
+      (is (= 55 (:sum-of-squares result)))
+      (is (= 5 (count (:items result))))
+      (is (every? :processed? (:items result))))
+    (testing "each child ran under a stable per-item id derived from the parent"
+      (let [child-id (str wf-id "|item-3")
+            status (query/get-workflow-status *instance* child-id)]
+        (is (= "SUCCESS" (:status status)))))
+    (testing "replaying the parent returns the recorded aggregate, no re-fan-out"
+      (is (= result @(core/start-workflow! *instance* :dbos.example/fan-out wf-id {:n 5}))))))
+
+(deftest ^:integration scheduled-heartbeat-test
+  (testing "the */2s scheduled heartbeat workflow fires and completes"
+    (let [deadline (+ (System/currentTimeMillis) 12000)
+          heartbeat? (fn []
+                       (seq (query/list-workflows
+                             *instance*
+                             {:workflow-name "heartbeat" :statuses ["SUCCESS"] :limit 1})))]
+      (loop []
+        (cond
+          (heartbeat?) (is true "observed at least one completed heartbeat run")
+          (< (System/currentTimeMillis) deadline) (do (Thread/sleep 500) (recur))
+          :else (is false "no heartbeat workflow completed within 12s"))))))

@@ -72,6 +72,44 @@ with `partial`:
  :workflow/fn (partial greet-workflow deps)}   ; fn becomes [deps dbos input]
 ```
 
+#### Steps — what goes inside one
+
+A step's contract is **"executed at least once, never re-run after it
+completes."** On replay/recovery a finished `run-step` returns its *recorded*
+value without re-executing the body. That dictates what belongs in a step:
+
+- **Wrap everything non-deterministic** the workflow later depends on — random
+  ids, timestamps, external API calls, DB reads — in a step, so recovery
+  replays the recorded value and every run takes the same branches. Code
+  *between* steps must be deterministic; it re-runs from scratch on recovery.
+- **`run-step` persists its return value; `do-step!` does not.** Use `run-step`
+  when the workflow reuses the result (keep it small — it is serialized); use
+  `do-step!` for side-effects whose result is unused (a DB write, sending a
+  notification).
+- **Logging is _not_ a step.** Wrapping a `log!`/`println` in `run-step` or
+  `do-step!` makes it fire exactly once, ever — skipped on every later retry
+  and on crash recovery, the opposite of what a log line is for. Emit logs
+  **bare, between steps.**
+- **Split independently-retriable work into separate steps.** A step retries as
+  a whole, never partially — keep "call a rate-limited API" and "write the
+  result to the DB" as two steps. Fused, a DB-write failure forces the
+  expensive fetch to redo too.
+- **`workflow-sleep` is durable** — the wake-up time is persisted, not the
+  thread, so it survives restarts.
+- **Never start a child workflow from inside a step** — call
+  `start-child-workflow!` from the workflow body only (see [Child
+  workflows](#child-workflows)).
+
+```clojure
+(defn ingest-workflow [{:keys [db api]} dbos {:keys [provider-id] :as input}]
+  ;; non-deterministic external fetch -> its own step (persisted, replayed)
+  (let [page (run-step dbos "fetch-page" (fetch-billing-page! api provider-id))]
+    (t/log! {:id :ingest/fetched :data {:n (count page)}})   ; bare log, not a step
+    ;; a separate, independently-retriable step for the DB write
+    (do-step! dbos "persist-events" (insert-events! db page))
+    (run-step dbos "summarize" {:ingested (count page)})))   ; deterministic result
+```
+
 ### 2. Own the lifecycle
 
 The library is stateless — you wire `create` / `launch!` / `shutdown!` into your
@@ -104,8 +142,13 @@ control when the executor goes live.
 - database: either `:datasource` (a `javax.sql.DataSource`) **or** `:database-url`
   + `:db-user` + `:db-password`. `:migrate?` lets DBOS create/upgrade its schema.
 - `:serializer` — defaults to the transit serializer with no injected handlers.
-- `:app-version`, `:executor-id`, `:schema`, `:listen-queues`, `:admin-server?`,
-  `:conductor` (`{:domain .. :api-key ..}`).
+- `:app-version`, `:executor-id`, `:schema`, `:listen-queues`.
+- Admin HTTP server: `:admin-server?` (enable) and `:admin-server-port` (int —
+  the port; only applies when the admin server is enabled).
+- Other runtime knobs: `:scheduler-polling-interval` (a `java.time.Duration`),
+  `:use-listen-notify?` (Postgres LISTEN/NOTIFY for queue wakeups, on by
+  default), `:enable-patching?`.
+- `:conductor` — `{:domain .. :api-key .. :executor-metadata {..}}`.
 
 ### 3. Start workflows
 
@@ -123,7 +166,44 @@ control when the executor goes live.
 Pass a stable workflow-id for idempotent starts — re-starting the same id replays
 the recorded run rather than executing again. The options map accepts
 `:workflow/id`, `:workflow/queue`, `:workflow/timeout`,
-`:workflow/deduplication-id`, `:workflow/priority`, and `:workflow/delay`.
+`:workflow/deduplication-id`, `:workflow/priority`, `:workflow/delay`,
+`:workflow/deadline` (an `Instant`), `:workflow/queue-partition-key`, and
+`:workflow/app-version` (see below). Blank string values are treated as absent.
+
+The workflow id is **not** injected into `input` — read it inside the body with
+`(dbos/workflow-id)` and outside via the handle (`(.workflowId handle)`).
+
+**Pre-built options.** Anywhere an options map is accepted you may instead pass a
+pre-built `dev.dbos.transact.StartWorkflowOptions` (or, for the client, a
+`DBOSClient$EnqueueOptions`); it is forwarded verbatim. Use this to reach option
+fields the map doesn't yet cover (auth, attributes, serialization strategy).
+
+#### Pinning the application version
+
+`:workflow/app-version` targets a specific DBOS application version — either a
+version-id **string** or the keyword `:latest` (resolved with one DB round-trip
+per call):
+
+```clojure
+(dbos/start-workflow! instance :my.app/greet
+                      {:workflow/id "greet-42" :workflow/app-version :latest}
+                      {:name "Ada"})
+```
+
+> **Caveat:** forcing an explicit version (or `:latest`) **overrides** DBOS's
+> normal version pinning. Only safe when the workflow input contract is stable
+> across the versions you span.
+
+Inspect and set the latest version (works on **either** a `DBOS` instance or a
+`DBOSClient`):
+
+```clojure
+(dbos/get-latest-app-version instance)
+;; => {:version-id "..." :version-name "..." :version-timestamp #inst"..." :created-at #inst"..."}
+
+(dbos/list-app-versions instance)         ; => [{...} {...}]
+(dbos/set-latest-app-version! instance "v-123")
+```
 
 ### 4. Enqueue from another process
 
@@ -144,6 +224,26 @@ worker listening on the queue picks it up.
 (.close c)
 ```
 
+When dispatching through the client, a queue is **required** — DBOS 1.0.0's
+`enqueueWorkflow` rejects a missing queue (there is no default/global-queue
+fallback). For the string/map forms, `enqueue-workflow!` enforces this up front
+(via `:workflow/queue`), turning DBOS's opaque `NullPointerException` into a clear
+`ex-info`. A pre-built `DBOSClient$EnqueueOptions` is passed straight through, so
+`enqueue-workflow!` skips its own pre-flight check and leaves the queue
+requirement to DBOS — you are expected to have set the queue on that object
+yourself (it is not added for you).
+
+As with `start-workflow!`, the workflow id is **not** injected into the input map —
+it rides on the handle (`(.workflowId handle)`) and is readable in the body via
+`(dbos/workflow-id)`.
+
+Re-attach to an already-enqueued workflow by id with `retrieve-workflow`:
+
+```clojure
+(let [handle (client/retrieve-workflow c "greet-99")]
+  @handle)   ; blocks for the result
+```
+
 ### 5. Query status
 
 `list-workflows` / `get-workflow-status` work on **either** a `DBOS` instance or
@@ -158,6 +258,13 @@ a `DBOSClient` — same call, dispatched on type.
 (query/list-workflows instance
                       {:workflow-id-prefix "greet-" :statuses ["SUCCESS"]})
 ;; => [{...} {...}]
+
+;; the recorded steps of a single workflow, in execution order:
+(query/list-workflow-steps instance "greet-99")
+;; => [{:function-id 0 :function-name "stamp" :output ... :error nil
+;;      :child-workflow-id nil :started-at #inst"..." :completed-at #inst"..."
+;;      :started-at-epoch-ms 1700000000000 :completed-at-epoch-ms 1700000000010
+;;      :serialization "..."} ...]
 ```
 
 Status strings and sets live in `dbos.constants` (`status-success`,
@@ -191,10 +298,14 @@ From inside a workflow body, start and await a child on the workflow's own threa
 (defn parent [dbos input]
   (let [handle (dbos/start-child-workflow!
                 dbos :my.app/greet
-                {:workflow-id (str (dbos/workflow-id) "|child")}
+                {:workflow/id (str (dbos/workflow-id) "|child")}
                 input)]
     {:child @handle}))
 ```
+
+`start-child-workflow!` accepts the same forms as `start-workflow!`: a bare
+workflow-id string, a `:workflow/*` options map, or a pre-built
+`StartWorkflowOptions`.
 
 ## Logging (Trove)
 
