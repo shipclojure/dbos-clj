@@ -5,7 +5,7 @@ A small wrapper over [dbos-transact-java](https://github.com/dbos-inc/dbos-trans
 ## Why use it?
 
 If you need durable execution & *resumable workflows* (read a great write-up on it here: [Demystifying Determinism in Durable Execution](https://jack-vanlightly.com/blog/2025/11/24/demystifying-determinism-in-durable-execution)) - DBOS is a much more lightweight alternative to something like [Temporal](https://temporal.io/) where you need to deploy a separate service just to start using it.
-With DBOS, all you need is a PostgreSQL DB and you can start using it.
+With DBOS, all you need is a PostgreSQL DB and you can start writing durable workflows.
 
 The Java version of DBOS has some weird kinks when it comes to interop with clojure that you can only discover through usage. That experience is boiled down to this library. It brings both functionality & ergonomics.
 
@@ -77,6 +77,9 @@ You should read and familiarise yourself with the official [DBOS docs](https://d
 
 ;; wait for result on the original thread
 @handle ;; => {:success true}
+
+;; Later close the executor
+(dbos/shutdown! dbos-instance)
 ```
 
 ## Configuration & lifecycle
@@ -113,7 +116,8 @@ A queue routes work to a pool of workers. Build one with the `Queue` builders (s
 
 (def dbos-instance
   (dbos/create
-   {:config    {:datasource db :app-name "my-app"
+   {:config    {:datasource db
+                :app-name "my-app"
                 :listen-queues ["my-queue"]}              ; consume work off "my-queue"
     :queues    [(-> (Queue. "my-queue")
                     (.withWorkerConcurrency (int 8)))]    ; up to 8 concurrent per executor
@@ -158,7 +162,7 @@ Both take the workflow **id-or-opts** as their third argument, and you can pass 
                       {:user-id "john-123"})
 ```
 
-The **workflow instance id** is your idempotency key: start the same id twice and DBOS replays the recorded run instead of executing it again. It is *not* folded into your input map - read it inside the body with `(dbos/workflow-id)`, or outside from the handle with `(.workflowId handle)`.
+The **workflow instance id** is your idempotency key: start the same id twice and DBOS replays the recorded run instead of executing it again. You can access the instance id with `(dbos/workflow-id)` from inside the workflow body, or outside from the resulting handle with `(.workflowId handle)`.
 
 Enqueuing looks the same, but goes through a `DBOSClient` and **requires a queue** (that's how a worker finds the work - there is no default queue):
 
@@ -186,6 +190,8 @@ Every workflow row records the `:app-version` that started it, and by default a 
 If you make changes to a workflow, you should bump the `app-version` with which your executors start, because you don't want executors on version `1.1.0` to pick up up workflows dispatched on `1.0.0`.
 
 By default, `dbos-transact-java` will compute the `app-version` as a SHA from the bytecode of the classes defining the workflows. This is dynamic in Clojure so the app version computes a new SHA on each dbos instance creation. Therefore, we need to maintain an app version manually.
+
+See also [DBOS Patching](https://docs.dbos.dev/java/tutorials/upgrading-workflows#patching) as a way to ship breaking changes in an environment where you have executors on different app versions.
 
 ### Child workflows
 
@@ -264,7 +270,7 @@ A step's contract is *"executed at least once, never re-run after it completes."
 - **Wrap anything non-deterministic** the workflow later depends on - random ids, timestamps, external API calls, DB reads. Recovery replays the recorded value, so every run takes the same branches. Code *between* steps must be deterministic; it re-runs from scratch on recovery.
 
 - **`run-step` persists the return value; `do-step!` doesn't.** Use `run-step` when you need the result later (keep it small - it's serialized). Use `do-step!` for side-effects whose result you don't need (a DB write, firing a notification). `do-step!` just persists the fact that the step ran, so it can be skipped on later resume.
-- **Logging is _not_ a step.** Wrap a log in a step and it fires exactly once, ever - skipped on every retry and crash recovery, which is the opposite of what a log is for. Log **bare, between steps**.
+- **Logging - debatable**. If you wrap logging inside a step, when a workflow is resumed/retried, the log doesn't issue again. This might be relevant to you if you want to see logs from the retry of the workflow. Up to you. We currently **don't** wrap logging operations in steps.
 - **Split independently-retriable work into separate steps.** A step retries as a whole, never partially. Keep "call a rate-limited API" and "write the result to the DB" as two steps - fused, a failed DB write forces the expensive fetch to redo too.
 - `workflow-sleep` is durable - the wake-up time is persisted, not the thread, so it survives restarts.
 - **Never start a child workflow from inside a step** - do it from the body.
@@ -273,7 +279,7 @@ A step's contract is *"executed at least once, never re-run after it completes."
 (defn sync-db-with-remote [{:keys [db api]} dbos {:keys [user-id]}]
   (let [row (dbos/run-step dbos "fetch from db"     ; DB read -> step
               (sql-fetch db user-id))]
-    (t/log! :sync/fetched {:user-id user-id})       ; bare log, NOT a step
+    (t/log! :sync/fetched {:user-id user-id})       ; bare log, not wrapped in a step
     (dbos/do-step! dbos "sync with remote"          ; side-effect -> do-step!
       (api! :post "/remote" {:body row}))
     {:success true}))                                ; deterministic result
@@ -284,7 +290,8 @@ A step's contract is *"executed at least once, never re-run after it completes."
 Both step macros take a name string **or** an options map to configure DBOS retries. A bare name means no retry (`:max-attempts` 1); a map opts in:
 
 ```clojure
-(dbos/run-step dbos {:name "fetch-user" :max-attempts 3
+(dbos/run-step dbos {:name "fetch-user"
+                     :max-attempts 3
                      :retry-interval (java.time.Duration/ofSeconds 2)
                      :backoff-rate 2.0}
   (api/get-user id))
@@ -292,7 +299,7 @@ Both step macros take a name string **or** an options map to configure DBOS retr
 
 Map keys: `:name` (required), `:max-attempts`, `:retry-interval` (a `Duration`), `:backoff-rate` (double), `:retry?` (predicate fn of `Throwable` -> boolean). A pre-built `StepOptions` is also accepted.
 
-### The step macros
+### The step macros in more details
 
 `dbos-clj` exposes some quality of life macros.  The [Official DBOS clojure getting started example](https://github.com/dbos-inc/dbos-demo-apps/blob/main/clojure/dbos-starter/src/dbos_starter/core.clj) shows usage like:
 
@@ -336,6 +343,40 @@ with `dbos-clj` running steps can use the macros that inline the function defini
   (log/infof "Workflow %s step 3 completed!" (DBOS/workflowId)))
 
 ```
+
+```clojure
+(defn execute-step
+  "Run a value-returning step via DBOS (result persisted). Redef seam for tests."
+  [^DBOS dbos step thunk]
+  (.runStep dbos
+            ^ThrowingSupplier (reify ThrowingSupplier (execute [_] (thunk)))
+            ^StepOptions (->step-options step)))
+
+(defn execute-do-step!
+  "Run a side-effect-only step via DBOS (result NOT persisted). Redef seam for tests."
+  [^DBOS dbos step thunk]
+  (.runStep dbos
+            ^ThrowingRunnable (reify ThrowingRunnable (execute [_] (thunk) nil))
+            ^StepOptions (->step-options step)))
+
+(defmacro run-step
+  "Run a workflow step that RETURNS a value (persisted for durable replay).
+  `step` is a name string, or an options map for retries (see `->step-options`),
+  or a pre-built StepOptions."
+  [dbos step & body]
+  `(let [step# ~step]
+     (execute-step ~dbos step# (fn [] ~@body))))
+
+(defmacro do-step!
+  "Run a workflow step for SIDE-EFFECTS only; result NOT persisted.
+  `step` is a name string, or an options map for retries (see `->step-options`),
+  or a pre-built StepOptions."
+  [dbos step & body]
+  `(let [step# ~step]
+     (execute-do-step! ~dbos step# (fn [] ~@body))))
+
+```
+
 
 ## Storage
 
@@ -425,13 +466,14 @@ If you run a DBOS executor outside your main app process but you still want to d
 Things to know:
 
 - **Point it at the same database** your executor uses - the client dispatches by writing rows into DBOS's tables, it doesn't call the executor directly.
-- **Use the same serializer** you configured on the instance, so the input you enqueue deserializes correctly on the worker side. If you don't pass one, it defaults to the same Transit serializer the instance uses by default.
+- **Use the same serializer** you configured on the instance, so the input you enqueue deserializes correctly on the worker side.
 - **A queue is required** when enqueuing (see [Workflow dispatch](#workflow-dispatch)).
 - There's **no client-side registry**: the `(workflowName, className)` pair is derived from the workflow keyword, so a typo'd keyword doesn't fail here - it surfaces as a durable `NOT_FOUND` when the worker tries to run it.
 - The client can also do read-side work: `retrieve-workflow` gets a derefable handle to an already-enqueued workflow by id, and the querying/event fns below accept a client too.
 
 ```clojure
 (let [handle (client/retrieve-workflow a-client "sync-user-john")]
+
   @handle)   ; block for the result from another process
 ```
 
