@@ -3,8 +3,7 @@
   owns the client's lifecycle (`.close` on shutdown)."
   (:require
    [dbos.core :as core]
-   [dbos.serializer :as serializer]
-   [taoensso.trove :as trove])
+   [dbos.serializer :as serializer])
   (:import
    (dev.dbos.transact DBOSClient)
    (dev.dbos.transact.json DBOSSerializer)
@@ -61,26 +60,17 @@
         opts (core/->workflow-opts opts)
         built (::core/built opts)]
     (if built
-      (do
-        (trove/log! {:id :dbos.client.workflow/enqueue
-                     :data {:workflow/key wf-key
-                            :workflow/class class-name
-                            :workflow/built true}})
-        (core/add-derefable
-         (.enqueueWorkflow client
-                           (core/->enqueue-options built)
-                           (object-array [workflow-data]))))
+      (core/add-derefable
+       (.enqueueWorkflow client
+                         (core/->enqueue-options built)
+                         (object-array [workflow-data])))
       (let [{:keys [workflow-id queue]} opts]
         (when-not queue
           (throw (ex-info "enqueue-workflow! requires a queue - set :workflow/queue"
                           {:error/type :dbos.client/missing-queue
                            :workflow/key wf-key
                            :workflow/id workflow-id})))
-        (trove/log! {:id :dbos.client.workflow/enqueue
-                     :data {:workflow/key wf-key
-                            :workflow/class class-name
-                            :workflow/id workflow-id
-                            :queue queue}})
+
         (core/add-derefable
          (.enqueueWorkflow client
                            (core/->enqueue-options

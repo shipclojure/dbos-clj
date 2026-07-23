@@ -292,46 +292,6 @@ Both step macros take a name string **or** an options map to configure DBOS retr
 
 Map keys: `:name` (required), `:max-attempts`, `:retry-interval` (a `Duration`), `:backoff-rate` (double), `:retry?` (predicate fn of `Throwable` -> boolean). A pre-built `StepOptions` is also accepted.
 
-### Logging
-
-`dbos-clj` never talks to a logging backend directly - it logs through the [Trove](https://github.com/taoensso/trove) facade. You pick a backend once at startup and wire it in with `trove/set-log-fn!`; from then on every log the library emits (workflow start/stop, step-start, serializer warnings, ...) flows to it.
-
-There's a second piece that's specific to steps. The `run-step`/`do-step!` macros run their whole body inside a pluggable `*step-context-fn*` seeded with `{:workflow/step "<step-name>"}`, so any structured log emitted *inside* a step body can inherit the step name - not just the step-start log the macro itself emits. Trove core has no `with-context` of its own, so you bridge that context to your backend's ambient-context macro with `dbos/set-step-context-fn!`. Skip it and you get a safe no-op: logging still works, the step name just won't ride along on nested logs.
-
-So wiring is two lines - route Trove to your backend, and hand `dbos-clj` that backend's context macro:
-
-**Telemere:**
-
-```clojure
-(require '[taoensso.trove :as trove]
-         '[taoensso.trove.telemere :as trove-telemere]
-         '[taoensso.telemere :as t]
-         '[dbos.core :as dbos])
-
-(defn configure-logging! []
-  (trove/set-log-fn! (trove-telemere/get-log-fn))       ; route Trove -> Telemere
-  ;; make nested logs inside a step carry {:workflow/step "step name"}
-  (dbos/set-step-context-fn!
-   (fn [ctx thunk] (t/with-ctx+ ctx (thunk)))))
-```
-
-**μ/log:**
-
-```clojure
-(require '[taoensso.trove :as trove]
-         '[taoensso.trove.mulog :as trove-mulog]
-         '[com.brunobonacci.mulog :as u]
-         '[dbos.core :as dbos])
-
-(defn configure-logging! []
-  (trove/set-log-fn! (trove-mulog/get-log-fn))           ; route Trove -> μ/log
-  ;; make nested logs inside a step carry {:workflow/step "step name"}
-  (dbos/set-step-context-fn!
-   (fn [ctx thunk] (u/with-context ctx (thunk)))))
-```
-
-Call `(configure-logging!)` once at startup, alongside the rest of your system init.
-
 ### The step macros
 
 `dbos-clj` exposes some quality of life macros.  The [Official DBOS clojure getting started example](https://github.com/dbos-inc/dbos-demo-apps/blob/main/clojure/dbos-starter/src/dbos_starter/core.clj) shows usage like:
