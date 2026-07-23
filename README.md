@@ -9,7 +9,7 @@ With DBOS, all you need is a PostgreSQL DB and you can start writing durable wor
 
 The Java version of DBOS has some weird kinks when it comes to interop with clojure that you can only discover through usage. That experience is boiled down to this library. It brings both functionality & ergonomics.
 
-## Instalation
+## Installation
 
 Deps:
 ```clojure
@@ -39,7 +39,7 @@ You should read and familiarise yourself with the official [DBOS docs](https://d
   (let [result (dbos/run-step dbos "fetch from db"
                  (sql-fetch db user-id))]
     ;; If you don't need the result of the operation, prefer using `do-step!` as
-    ;; it only perists that the step ran, NOT the result. Useful to avoid large
+    ;; it only persists that the step ran, NOT the result. Useful to avoid large
     ;; data chunks being persisted for no reason.
     (dbos/do-step! dbos "sync with remote"
       (api! :post "/remote" {:body result}))
@@ -53,11 +53,11 @@ You should read and familiarise yourself with the official [DBOS docs](https://d
 
 (def dbos-instance
   (dbos/create
-   {:config {:datasource db ;; Your java.sql.Datasource DB (HickariCP etc.)
+   {:config {:datasource db ;; Your java.sql.Datasource DB (HikariCP etc.)
              :app-name "My DBOS clojure app"
              :app-version "1.0.0" ;; See App Version section in the README
              :executor-id "my-clj-dbos-executor" ;; ID of the executor that runs the workflows
-             ;; DB schema where DBOS creates its internaltables - optional, defaults to `dbos`
+             ;; DB schema where DBOS creates its internal tables - optional, defaults to `dbos`
              :schema "dbos"}
     :workflows [wf-definition]}))
 
@@ -154,7 +154,8 @@ Both take the workflow **id-or-opts** as their third argument, and you can pass 
                       {:user-id "john-123"})
 
 ;; 3. an already-built StartWorkflowOptions, for a knob the map doesn't model
-;;    (auth, attributes, ...). It's passed straight through, untouched.
+;;    (auth, attributes, ...). It's passed straight through, untouched - so
+;;    :latest app-version resolution and blank-string guards do NOT apply here.
 (dbos/start-workflow! dbos-instance :workflow/sync-db-with-remote
                       (-> (StartWorkflowOptions.)
                           (.withWorkflowId "sync-user-john-to-remote")
@@ -163,6 +164,8 @@ Both take the workflow **id-or-opts** as their third argument, and you can pass 
 ```
 
 The **workflow instance id** is your idempotency key: start the same id twice and DBOS replays the recorded run instead of executing it again. You can access the instance id with `(dbos/workflow-id)` from inside the workflow body, or outside from the resulting handle with `(.workflowId handle)`.
+
+Omit the id entirely - pass `nil`, or a map without `:workflow/id` - and DBOS assigns a random UUID. You lose idempotent replay (there's no stable key to dedupe on), but you can still read the generated id off the handle.
 
 Enqueuing looks the same, but goes through a `DBOSClient` and **requires a queue** (that's how a worker finds the work - there is no default queue):
 
@@ -408,7 +411,7 @@ The `~:` prefix is Transit's tag for a keyword; scalars stay plain (`[1,2,3]` is
 
 ## Serialization
 
-Workflow inputs, outputs, errors  and results/errros from each step are serialized in the database. In case of a crash, the workflow is retried from the last successfull persisted step.
+Workflow inputs, outputs, errors and results/errors from each step are serialized in the database. In case of a crash, the workflow is retried from the last successful persisted step.
 
 ### Why does `dbos-clj` bring its own serialization. What's wrong with the default in DBOS?
 The dbos-transact-java, uses [jackson-databind](https://github.com/FasterXML/jackson-databind) to serialize/deserialize objects. The default cannot be used in clojure because when deserializing persistent data structures, jackson tries to mutate them in place causing them to throw. Because of this, [Transit](https://github.com/cognitect/transit-clj) is used as the serializer, defaulting to DBOS's default serializer when transit doesn't have handlers for that particular object.
@@ -432,12 +435,47 @@ Out of the box the serializer bundles **no** custom handlers, so plain Clojure d
 
 ### Unhandled types (the `java-object` box)
 
-When a value has no transit handler, the serializer doesn't give up - it boxes it as a `java-object`: `{:java-object/class .. :java-object/repr .. :java-object/jackson ..}`, with a `:dbos.serializer/java-object-boxed` warning log, and reconstructs the real object on read. Two cases fail loudly instead, both by design (a durable system shouldn't silently persist or resurrect bad state):
+When a value has no transit handler, the serializer doesn't give up - it boxes it as a `java-object`: `{:java-object/class .. :java-object/repr .. :java-object/jackson ..}`, and reconstructs the real object on read. Two cases fail loudly instead, both by design (a durable system shouldn't silently persist or resurrect bad state):
 
 - **On write** - if the value can't round-trip through DBOS's own Jackson serializer either (e.g. an atom), serialization **throws** `:dbos.serializer/unserializable` and fails the step/workflow. Fix it to return serializable data.
 - **On read** - if a boxed value's class is missing or has changed shape on the JVM doing the read, it **throws** `:dbos.serializer/reconstruct-failed`.
 
 The format name recorded per row is the frozen `transit_json_verbose` - it's how DBOS knows which reader to use, so don't change it once you have live data. For types that must survive with full fidelity, a real transit handler beats leaning on the java-object box.
+
+### Bringing your own serializer
+
+Transit is just the default. `:serializer` - accepted by both `dbos-config` (the `:config` map you pass to `create`) and `create-client` - takes **any** `dev.dbos.transact.json.DBOSSerializer`, so you can swap the format entirely. The interface is five methods: `name`, `serialize`/`deserialize`, and `serializeThrowable`/`deserializeThrowable`. Three things to know:
+
+- `serialize` must return a **String**, so a binary codec like [Nippy](https://github.com/taoensso/nippy) has to base64-encode its bytes.
+- `name` is recorded per row and is **frozen** - never change it once you have live data (it's how DBOS picks the reader).
+- The DBOS instance and every `DBOSClient` that touch the same rows must use the **same** serializer.
+
+```clojure
+(require '[taoensso.nippy :as nippy])
+(import '(dev.dbos.transact.json DBOSSerializer)
+        '(java.util Base64))
+
+(defn nippy-serializer []
+  (let [enc (Base64/getEncoder)
+        dec (Base64/getDecoder)]
+    (reify DBOSSerializer
+      (name [_] "nippy_base64")                    ; frozen once data exists
+      (serialize   [_ v] (.encodeToString enc (nippy/freeze v)))
+      (deserialize [_ s] (when s (nippy/thaw (.decode dec ^String s))))
+      (serializeThrowable [_ t]
+        (.encodeToString enc (nippy/freeze {:ex/class   (.getName (class t))
+                                            :ex/message (ex-message t)
+                                            :ex/data    (ex-data t)})))
+      (deserializeThrowable [_ s]
+        (when s
+          (let [{:ex/keys [message data]} (nippy/thaw (.decode dec ^String s))]
+            (ex-info (or message "DBOS workflow error") (or data {}))))))))
+
+;; wire it in wherever you build config:
+(dbos/create {:config {:app-name "my-app" :datasource ds :serializer (nippy-serializer)}
+              :workflows [...]})
+(client/create-client {:datasource ds :serializer (nippy-serializer)})
+```
 
 
 ## DBOS Client
