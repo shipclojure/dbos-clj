@@ -542,6 +542,23 @@ The read-side lives in `dbos.query` and works the same on a DBOS instance or a `
 
 Status strings and handy sets (`terminal-statuses`, `in-progress-statuses`, ...) live in `dbos.constants`, which is pure `.cljc` data - safe to share with a ClojureScript UI.
 
+## Cancelling & resuming workflows
+
+`cancel-workflow!` and `resume-workflow!` manage in-flight or stuck workflows. Like the query fns, they work on either a DBOS instance or a `DBOSClient`, so you can drive them from the executor or from a different process:
+
+```clojure
+;; mark a running/enqueued workflow CANCELLED - it stops executing further
+;; steps. Returns the id.
+(dbos/cancel-workflow! dbos-instance "sync-user-john")
+
+;; resume a cancelled (or otherwise paused) workflow from where it left off,
+;; returning a derefable handle.
+@(dbos/resume-workflow! dbos-instance "sync-user-john")
+
+;; both accept a DBOSClient too, for out-of-process control
+(dbos/cancel-workflow! a-client "sync-user-john")
+```
+
 ## Events
 
 Events are a durable key/value channel on a running workflow - the workflow publishes progress under a key, and anyone (a request handler, another process) reads the latest value back. Reporting progress to a UI is the classic use.
@@ -561,3 +578,10 @@ Events are a durable key/value channel on a running workflow - the workflow publ
 (dbos/get-event dbos-instance "ingest-42" :progress)
 ;; => {:done 3 :total 10}
 ```
+
+## Acknowledgments
+
+`dbos-clj` is a thin Clojure wrapper over [DBOS Transact](https://github.com/dbos-inc/dbos-transact-java). All the hard durable-execution machinery - the workflow engine, crash recovery, queues, scheduling, events, and Postgres-backed persistence - is theirs; this library only adds Clojure ergonomics (plain-data options, macros, a Transit serializer, and derefable handles) on top. Huge thanks to the [DBOS](https://www.dbos.dev/) team for building and open-sourcing it.
+
+The default serializer is built on [Transit](https://github.com/cognitect/transit-clj) - thanks to Cognitect (now part of [Nubank](https://nubank.com.br/)) for the format and the Clojure implementation, which is what keeps the persisted workflow data human-readable and round-tripping as real Clojure values.
+
