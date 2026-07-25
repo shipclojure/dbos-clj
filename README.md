@@ -1,5 +1,8 @@
 # dbos-clj
 
+[![Clojars Project](https://img.shields.io/clojars/v/com.shipclojure/dbos-clj.svg)](https://clojars.org/com.shipclojure/dbos-clj)
+[![CI](https://github.com/shipclojure/dbos-clj/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shipclojure/dbos-clj/actions/workflows/ci.yml)
+
 A small wrapper over [dbos-transact-java](https://github.com/dbos-inc/dbos-transact-java) to support durable workflows backed by PostgreSQL or CockroachDB in Clojure.
 
 ## Why use it?
