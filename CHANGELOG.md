@@ -1,0 +1,33 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.2.0] - 2026-07-25
+
+### Added
+
+- Per-step logging through [trove](https://github.com/taoensso/trove): `run-step` and `do-step!` emit a `:step/start` log carrying `{:workflow/step "<name>"}`. Point trove at your own backend with `trove/set-log-fn!`.
+- `set-step-ctx-wrapper!` (and the `*step-ctx-wrapper*` dynamic var) to bridge step context into a logging backend's *native* scope, so a bare `t/log!` or `μ/log` call inside a step body inherits `:workflow/step`. Defaults to a no-op.
+- `AppVersioned` is now `:extend-via-metadata`, so a plain map carrying the method in its metadata can stand in for a DBOS instance or client. Useful for stubbing without a live database, and unlike `reify` it survives re-evaluating `dbos.core` in a REPL.
+
+### Fixed
+
+- Documentation: the trove backend example referenced a `taoensso.trove.x` namespace that does not exist; it now names a real backend. Two code samples with unbalanced parentheses were repaired, one of which nested three steps inside each other instead of running them in sequence.
+
+## [0.1.0] - 2026-07-23
+
+### Added
+
+- Initial release: a Clojure wrapper over [dbos-transact-java](https://github.com/dbos-inc/dbos-transact-java) for durable workflows backed by PostgreSQL.
+- `dbos.core` — instance lifecycle (`create`, `launch!`, `shutdown!`), workflow registration, `start-workflow!`, the `run-step` and `do-step!` macros with retry options, child workflows, scheduled workflows via `apply-schedules!`, durable events (`set-event!`, `get-event`), `workflow-sleep`, and `cancel-workflow!` / `resume-workflow!`.
+- `dbos.client` — `create-client`, `enqueue-workflow!` and `retrieve-workflow`, for dispatching work to out-of-process executors.
+- `dbos.query` — `get-workflow-status`, `list-workflows` and `list-workflow-steps`, working against either a DBOS instance or a client.
+- `dbos.serializer` — a Transit serializer (recorded per row as `transit_json_verbose`) replacing DBOS's Jackson default, which cannot deserialize Clojure's persistent data structures. Supports custom read/write handlers, and boxes otherwise unhandled types rather than failing silently.
+- `dbos.constants` — status strings and status sets as `.cljc`, shareable with a ClojureScript UI.
+- Application-version targeting, including resolving `:latest` at dispatch time.
+
+[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/shipclojure/dbos-clj/releases/tag/v0.1.0
