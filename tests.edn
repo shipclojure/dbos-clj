@@ -2,6 +2,8 @@
 {:tests [{:id :unit
           :source-paths ["src"]
           :test-paths ["test"]}]
+ ;; Print each test as it runs, indented, instead of the default dots.
+ :reporter kaocha.report/documentation
  ;; :hooks is not on by default; without it the pre-load below is ignored.
  ;; Merges with kaocha's defaults (randomize/filter/capture-output).
  :plugins [:hooks]
