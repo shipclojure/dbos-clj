@@ -616,6 +616,50 @@ Consider the following scenario:
 By default this is a noop.
 
 
+## Development
+
+```bash
+bb dev
+```
+
+Starts a Postgres container, waits for it, and opens an nREPL on **7899** with the `:dev` and `:test` aliases. If something is already listening on the Postgres port it's left alone (force either way with `DBOS_DOCKER_COMPOSE=true/false`).
+
+Postgres is published on **54329**, not 5432 — that one is usually already taken by another project. `docker/init-db.dev.sql` creates a `dbos` / `dbos` account owning two databases:
+
+| Database        | Purpose                                     |
+|-----------------|---------------------------------------------|
+| `dbos_clj_dev`  | scratch database for REPL experiments       |
+| `dbos_clj_test` | throwaway database for the integration suite |
+
+The account owns them outright because DBOS creates and migrates its own schema on launch.
+
+### Tests
+
+```bash
+bb test              # unit suite, no database needed
+bb test integration  # live-DBOS suite, needs the dev Postgres
+```
+
+`bin/kaocha` loads `.env`, so the integration suite finds the same database as the REPL with no manual setup. Variables already set win, which is how CI points the same code at its own service container.
+
+### Other tasks
+
+```bash
+bb db:up      # start Postgres on its own
+bb db:down    # stop it, keeping data
+bb db:reset   # wipe it and re-run docker/init-db.dev.sql
+bb db:psql    # psql shell on the dev database
+```
+
+### Configuration
+
+Everything lives in `.env` (committed — throwaway local credentials, not secrets), read by launchpad, docker compose and `bin/kaocha` alike. Override it without touching the file, lowest priority first:
+
+1. `.env.local`
+2. `deps.local.edn`, as `{:launchpad/options {:dev/env {"DBOS_PG_PORT" "55432"}}}`
+
+Both are gitignored. `.env.local` is also live-watched by launchpad. Note that docker compose only reads `.env`, so if you move the *port* elsewhere, pass it explicitly (`DBOS_PG_PORT=… bb db:up`).
+
 ## Acknowledgments
 
 `dbos-clj` is a thin Clojure wrapper over [DBOS Transact](https://github.com/dbos-inc/dbos-transact-java). All the hard durable-execution machinery - the workflow engine, crash recovery, queues, scheduling, events, and Postgres-backed persistence - is theirs; this library only adds Clojure ergonomics (plain-data options, macros, a Transit serializer, and derefable handles) on top. Huge thanks to the [DBOS](https://www.dbos.dev/) team for building and open-sourcing it.

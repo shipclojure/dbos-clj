@@ -1,4 +1,5 @@
-{:deps {dev.dbos/transact {:mvn/version "1.0.0"}
+{:paths ["src" "resources"]
+ :deps {dev.dbos/transact {:mvn/version "1.0.0"}
         com.taoensso/trove {:mvn/version "1.1.0"}
         com.cognitect/transit-clj {:mvn/version "1.0.333"}}
  :aliases
@@ -9,11 +10,16 @@
    :extra-paths ["build"]}
   :dev
   {:extra-paths ["dev" "test"]}
+  ;; Classpath only, no :main-opts — bin/launchpad puts this on the REPL
+  ;; classpath and :main-opts would hijack its nREPL bootstrap.
   :test
   {:extra-deps
    {lambdaisland/kaocha {:mvn/version "1.91.1392"}
     ;; deps of the example/ consumer the integration tests boot
     integrant/integrant {:mvn/version "1.0.1"}
     com.taoensso/telemere {:mvn/version "1.2.0"}}
-   :main-opts ["-m" "kaocha.runner"]
-   :extra-paths ["test" "example/src" "example/resources"]}}}
+   :extra-paths ["test" "example/src" "example/resources"]}
+
+  ;; Kaocha entrypoint. Always paired: clojure -M:test:test-runner
+  :test-runner
+  {:main-opts ["-m" "kaocha.runner"]}}}

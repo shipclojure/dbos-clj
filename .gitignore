@@ -4,3 +4,7 @@
 /.nrepl-port
 /target/
 /.clj-kondo/imports/
+
+# Personal dev overrides, layered on top of the committed .env
+/.env.local
+/deps.local.edn

@@ -1,0 +1,132 @@
+#!/usr/bin/env bb
+
+;; Dev entrypoint — `bb dev`. Boots the docker-compose Postgres (unless one is
+;; already listening), waits for it, then starts an nREPL with :dev and :test.
+;;
+;; Config lives in .env. Launchpad's own `watch-dotenv` step merges .env and
+;; .env.local into `(:env ctx)` before our pre-steps run, so we just read that
+;; map and pass it on — nothing is parsed twice.
+
+(require
+ '[babashka.process :refer [process]]
+ '[babashka.wait :as wait]
+ '[clojure.string :as str]
+ '[lambdaisland.launchpad :as launchpad])
+
+(def ^:private nrepl-port 7899)
+
+(def ^:private required-env
+  ["DBOS_PG_HOST" "DBOS_PG_PORT"
+   "DBOS_DB_USER" "DBOS_DB_PASSWORD"
+   "DBOS_DEV_DB" "DBOS_TEST_DB"
+   "DBOS_TEST_DATABASE_URL" "DBOS_TEST_DB_USER" "DBOS_TEST_DB_PASSWORD"])
+
+(defn- die! [& msg]
+  (println (launchpad/ansi-fg :red (str "✗ " (str/join " " msg))))
+  (System/exit 1))
+
+;; -- pre-steps ---------------------------------------------------------------
+
+(defn dev-env
+  "Merge deps.local.edn overrides into the env, then check nothing is missing.
+
+  Launchpad copies `:launchpad/options` from deps.local.edn onto the ctx, so
+  `{:launchpad/options {:dev/env {\"DBOS_PG_PORT\" \"55432\"}}}` arrives as
+  `:dev/env`. We merge it by hand — a top-level `:env` there would replace the
+  whole environment, PATH included."
+  [ctx]
+  (let [ctx (update ctx :env merge (:dev/env ctx))]
+    (when-let [missing (seq (remove (:env ctx) required-env))]
+      (die! "Missing dev environment variables:" (str/join ", " missing)
+            "\n  Restore .env from git, or set them in .env.local."))
+    ctx))
+
+(defn- pg-coords [ctx]
+  (let [{:strs [DBOS_PG_HOST DBOS_PG_PORT]} (:env ctx)]
+    [DBOS_PG_HOST (parse-long DBOS_PG_PORT)]))
+
+(defn resolve-docker-compose
+  "Start Postgres only when nothing answers on the port, so an existing
+  instance is left alone. Force with DBOS_DOCKER_COMPOSE=true/false."
+  [ctx]
+  (let [[host port] (pg-coords ctx)
+        start? (case (get-in ctx [:env "DBOS_DOCKER_COMPOSE"])
+                 ("false" "0" "no") false
+                 ("true" "1" "yes") true
+                 (not (wait/wait-for-port host port {:timeout 2000 :pause 250})))]
+    (println (if start?
+               (str "🐳 Nothing on " host ":" port " — starting Postgres")
+               (str "🐳 Postgres already reachable on " host ":" port)))
+    (assoc ctx :docker-compose start?)))
+
+(defn docker-compose-up [ctx]
+  (when (:docker-compose ctx)
+    (let [{:keys [exit]} @(process ["docker" "compose" "up" "-d"]
+                                   {:out :inherit :err :inherit :env (:env ctx)})]
+      (when-not (zero? exit)
+        (die! "`docker compose up -d` failed with exit code" exit))))
+  ctx)
+
+(defn wait-for-postgres
+  "Poll a real query as the dev account. A TCP probe isn't enough on a fresh
+  volume: the port is published while initdb is still creating the role."
+  [ctx]
+  (if-not (:docker-compose ctx)
+    ctx
+    (let [{:strs [DBOS_DB_USER DBOS_TEST_DB]} (:env ctx)
+          ready? (fn []
+                   (zero? (:exit @(process ["docker" "compose" "exec" "-T" "postgres"
+                                            "psql" "-U" DBOS_DB_USER "-d" DBOS_TEST_DB
+                                            "-tAc" "select 1"]
+                                           {:out :string :err :string :env (:env ctx)}))))
+          deadline (+ (System/currentTimeMillis) 90000)]
+      (print "⏳ Waiting for Postgres")
+      (flush)
+      (loop []
+        (cond
+          (ready?)
+          (do (println (launchpad/ansi-fg :green " ready")) ctx)
+
+          (< (System/currentTimeMillis) deadline)
+          (do (print ".") (flush) (Thread/sleep 1000) (recur))
+
+          :else
+          (die! "Postgres not ready within 90s. Check `docker compose logs postgres`."))))))
+
+(def ^:private separator "────────────────────────────────────────────────")
+
+(defn print-dev-summary [ctx]
+  (let [{:strs [DBOS_PG_HOST DBOS_PG_PORT DBOS_DB_USER DBOS_DEV_DB DBOS_TEST_DB]} (:env ctx)
+        lbl (partial launchpad/ansi-fg :green)
+        val (partial launchpad/ansi-fg :magenta)
+        cyan (partial launchpad/ansi-fg :cyan)
+        bold launchpad/ansi-bold]
+    (println)
+    (println (bold separator))
+    (println (bold "dbos-clj dev"))
+    (println (bold separator))
+    (println (format "   %-14s %s" (lbl "nREPL:") (val nrepl-port)))
+    (println (format "   %-14s %s" (lbl "Postgres:")
+                     (val (str DBOS_PG_HOST ":" DBOS_PG_PORT))))
+    (println (format "   %-14s %s" (lbl "Account:") (val DBOS_DB_USER)))
+    (println (format "   %-14s %s  %s" (lbl "Dev DB:") (val DBOS_DEV_DB)
+                     (cyan "(DBOS_DATABASE_URL)")))
+    (println (format "   %-14s %s  %s" (lbl "Test DB:") (val DBOS_TEST_DB)
+                     (cyan "(DBOS_TEST_DATABASE_URL)")))
+    (println)
+    (println (str "   " (cyan "bb test integration") "  live-DBOS suite against the test DB"))
+    (println (str "   " (cyan "bb db:psql") "           psql shell on the dev DB"))
+    (println (bold separator))
+    (println))
+  ctx)
+
+;; ----------------------------------------------------------------------------
+
+(launchpad/main
+ {:aliases [:dev :test]
+  :nrepl-port nrepl-port
+  :pre-steps [dev-env
+              resolve-docker-compose
+              docker-compose-up
+              wait-for-postgres
+              print-dev-summary]})

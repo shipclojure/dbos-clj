@@ -1,9 +1,24 @@
 #!/usr/bin/env bash
-# Default run: unit suite only (no database required).
-# Run the live-DBOS suite explicitly: ./bin/kaocha integration
-# (needs a reachable Postgres; see dbos.core-integration-test).
-if [ $# -eq 0 ]; then
-  clojure -M:test unit
-else
-  clojure -M:test "$@"
-fi
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+# Load .env so the :integration suite finds the docker-compose Postgres.
+# Only fills in unset vars, so CI's explicit DBOS_TEST_* always wins.
+load_env() {
+  local file="$1" line key value
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in '' | '#'*) continue ;; esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    [ -n "${!key:-}" ] || export "$key=$value"
+  done <"$file"
+}
+
+# .env.local first, so it wins.
+load_env .env.local
+load_env .env
+
+clojure -M:test:test-runner "$@"

@@ -1,7 +1,25 @@
-{:tasks {lint {:doc "Linting project's code"
+{:deps {com.lambdaisland/launchpad {:mvn/version "0.45.201-alpha"}}
+
+ :tasks {dev {:doc "Start the dev environment: Postgres + nREPL on 7899. See bin/launchpad."
+              :task (shell "bin/launchpad")}
+
+         db:up {:doc "Start the dev Postgres in the background."
+                :task (shell "docker compose up -d")}
+
+         db:down {:doc "Stop the dev Postgres, keeping its data."
+                  :task (shell "docker compose down")}
+
+         db:reset {:doc "Wipe the dev Postgres and recreate it from docker/init-db.dev.sql."
+                   :task (do (shell "docker compose down -v")
+                             (shell "docker compose up -d"))}
+
+         db:psql {:doc "Open a psql shell on the dev database."
+                  :task (shell "docker compose exec postgres psql -U dbos -d dbos_clj_dev")}
+
+         lint {:doc "Linting project's code"
                :task (shell "clj-kondo" "--parallel" "--lint" "src" "test")}
 
-         test {:doc "Run tests."
+         test {:doc "Run tests. Defaults to the unit suite; `bb test integration` needs the dev Postgres (`bb dev` or `bb db:up`)."
                :task (apply shell "bin/kaocha" *command-line-args*)}
 
          build {:doc "Build the library jar into target/ (version from the latest v* git tag)."

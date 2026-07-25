@@ -91,7 +91,6 @@
     (log-step-start! step-name)
     (*step-ctx-wrapper* ctx thunk)))
 
-
 (defn execute-step
   "Run a value-returning step via DBOS (result persisted). Redef seam for tests."
   [^DBOS dbos step thunk]
@@ -278,6 +277,10 @@
 
 (defprotocol AppVersioned
   "App-version accessors for both a DBOS instance and a DBOSClient."
+  ;; Lets a plain map carry an impl in its metadata, so stubs survive a REPL
+  ;; reload — a reify is bound to the interface of the defprotocol that
+  ;; compiled it. DBOS/DBOSClient still take the direct interface path.
+  :extend-via-metadata true
   (-get-latest-app-version [this])
   (-list-app-versions [this])
   (-set-latest-app-version! [this version-id]))

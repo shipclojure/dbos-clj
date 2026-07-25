@@ -39,14 +39,11 @@ jobs:
 
       # Warm the dependency cache once so failures below are about tests.
       - name: Fetch deps
-        run: clojure -P -M:test
-
-      - name: Unit tests
-        run: clojure -M:test unit
+        run: clojure -P -M:test:test-runner
 
       - name: Integration tests (live DBOS + Postgres)
         env:
           DBOS_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/dbos_clj_test
           DBOS_TEST_DB_USER: postgres
           DBOS_TEST_DB_PASSWORD: postgres
-        run: clojure -M:test integration
+        run: clojure -M:test:test-runner

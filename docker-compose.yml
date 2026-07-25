@@ -1,0 +1,33 @@
+# Local dev Postgres. Started by bin/launchpad, or directly via `bb db:up`.
+# Values come from .env, which docker compose reads natively.
+name: dbos-clj
+
+services:
+  postgres:
+    image: postgres:18.1-trixie
+    # Only the published port is unusual; inside the network it's still 5432.
+    ports:
+      - "${DBOS_PG_PORT:-54329}:5432"
+    environment:
+      # Container superuser. The dev account is `dbos`, created by the init script.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql
+      # Runs once, on an empty volume. `bb db:reset` drops it so this reruns.
+      - ./docker/init-db.dev.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      # Probes the dev account, so "healthy" implies the init script ran.
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DBOS_DB_USER:-dbos} -d ${DBOS_TEST_DB:-dbos_clj_test}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  pgdata:
