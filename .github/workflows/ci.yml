@@ -41,7 +41,7 @@ jobs:
       - name: Fetch deps
         run: clojure -P -M:test:test-runner
 
-      - name: Integration tests (live DBOS + Postgres)
+      - name: Tests
         env:
           DBOS_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/dbos_clj_test
           DBOS_TEST_DB_USER: postgres
