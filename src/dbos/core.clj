@@ -61,35 +61,18 @@
                :id :step/start
                :data {:workflow/step step-name}}))
 
-(def ^:dynamic *step-ctx-wrapper*
-  "Fn applied around every step body to bridge the step's context into your
-  logging backend's *native* scope — so bare backend log calls in the body
-  (Telemere `t/log!`, μ/log `μ/log`) inherit it, not just `trove/log!`.
-
-  Value should be a (fn [ctx-map thunk]) that runs `thunk` with `ctx-map`
-  installed in the backend's own context, returning thunk's result. e.g.:
-
-    (fn [ctx thunk] (taoensso.telemere/with-ctx+ ctx (thunk)))   ; Telemere
-    (fn [ctx thunk] (com.brunobonacci.mulog/with-context ctx (thunk))) ; μ/log
-
-  Default is a no-op (dbos-clj injects nothing into your backend).
-
-  Re/bind dynamic value using `binding`.
-  Modify  root (default) value using `set-step-ctx-wrapper!`."
-  (fn [_ctx thunk] (thunk)))
-
-(defn set-step-ctx-wrapper!
-  "Sets the root value of `*step-ctx-wrapper*` (see its docstring)."
-  [f]
-  (alter-var-root #'*step-ctx-wrapper* (constantly f)))
-
 (defn- ^:no-doc run-in-step-ctx
-  "Runtime half of `run-step|do-step`: install step ctx (Trove + native bridge), run thunk."
+  "Runtime half of `run-step|do-step`: bind step ctx, log start, run thunk.
+
+  `trove/with-ctx+` carries `:workflow/step` on `trove/log!` calls in the body.
+  `trove/with-backend-ctx` additionally carries it into the backend's *native*
+  context (so a bare `t/log!` inherits it) — but only if the end user opted in
+  with `{:bridge-ctx? true}` when building their log-fn. Otherwise a no-op."
   [step thunk]
-  (let [step-name (step-display-name step)
-        ctx {:workflow/step step-name}]
-    (log-step-start! step-name)
-    (*step-ctx-wrapper* ctx thunk)))
+  (let [step-name (step-display-name step)]
+    (trove/with-ctx+ {:workflow/step step-name}
+      (log-step-start! step-name)
+      (trove/with-backend-ctx (thunk)))))
 
 (defn execute-step
   "Run a value-returning step via DBOS (result persisted). Redef seam for tests."

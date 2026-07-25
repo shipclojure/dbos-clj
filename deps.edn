@@ -1,6 +1,12 @@
 {:paths ["src" "resources"]
  :deps {dev.dbos/transact {:mvn/version "1.0.0"}
-        com.taoensso/trove {:mvn/version "1.1.0"}
+        ;; TEMPORARY: trove master, for the unreleased ctx/bridge API used by
+        ;; `run-in-step-ctx` (taoensso/trove#7). Back to an :mvn/version once
+        ;; that ships — this coordinate can't be released to Clojars.
+        ;; :deps/manifest is required: trove ships no deps.edn/pom.xml.
+        com.taoensso/trove {:git/url "https://github.com/taoensso/trove.git"
+                            :git/sha "9420e1acbe44bc120a988c4b673b5932fe4e5271"
+                            :deps/manifest :deps}
         com.cognitect/transit-clj {:mvn/version "1.0.333"}}
  :aliases
  {:build
