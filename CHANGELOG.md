@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Step context now goes through [trove](https://github.com/taoensso/trove)'s own context API instead of a `dbos-clj`-specific hook. Every step body runs inside `trove/with-ctx+ {:workflow/step "<name>"}`, so any `trove/log!` in a step carries the step name with no setup at all.
+- **Requires trove 1.2.0-alpha1 or later**, which is where that context API landed.
+
+### Removed
+
+- **Breaking:** `set-step-ctx-wrapper!` and the `*step-ctx-wrapper*` dynamic var. To tag *native* backend calls — a bare Telemere `t/log!`, a `μ/log`, an MDC-aware SLF4J layout — opt into trove's context bridge when building your log-fn instead:
+
+  ```clojure
+  (trove/set-log-fn! (trove-telemere/get-log-fn {:bridge-ctx? true}))
+  ```
+
+  One line where there were two, and the step name reaches your backend's own context without `dbos-clj` knowing which backend you picked. Bridging is supported by the Telemere, Timbre, μ/log and SLF4J (MDC-capable provider) backends.
+
 ## [0.3.0] - 2026-07-25
 
 ### Added

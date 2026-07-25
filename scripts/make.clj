@@ -110,8 +110,10 @@
     (replace-in-file! readme re (fn [[_ before after]] (str before version after)))))
 
 (defn- ensure-releasable! [version]
-  (when-not (re-matches #"\d+\.\d+\.\d+" version)
-    (fail! "Version must be MAJOR.MINOR.PATCH, got:" version))
+  ;; MAJOR.MINOR.PATCH with an optional semver prerelease suffix, e.g.
+  ;; 0.4.0-alpha1 — dot-separated alphanumeric identifiers.
+  (when-not (re-matches #"\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?" version)
+    (fail! "Version must be MAJOR.MINOR.PATCH[-PRERELEASE], got:" version))
   (when (seq (git "status" "--porcelain"))
     (fail! "Working tree is dirty — commit or stash first."))
   (when (seq (git "tag" "-l" (str "v" version)))
