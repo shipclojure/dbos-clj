@@ -1,30 +1,7 @@
-{:deps {com.lambdaisland/launchpad {:mvn/version "0.45.201-alpha"}}
+{:paths ["scripts"]
+ :deps {com.lambdaisland/launchpad {:mvn/version "0.45.201-alpha"}}
 
- :tasks {:init
-         (do
-           (require '[babashka.process :as process]
-                    '[clojure.string :as string])
-
-           (defn op-read
-             "Read a secret from 1Password. Throws rather than returning a blank,
-              which would otherwise surface as a confusing 401 from Clojars."
-             [reference]
-             (let [{:keys [exit out err]} (process/sh ["op" "read" reference])
-                   secret (string/trim out)]
-               (cond
-                 (not (zero? exit))
-                 (throw (ex-info (str "1Password lookup failed for " reference ": "
-                                      (string/trim err)
-                                      "\nIs `op` installed and signed in?")
-                                 {:reference reference}))
-
-                 (string/blank? secret)
-                 (throw (ex-info (str "1Password returned an empty value for " reference)
-                                 {:reference reference}))
-
-                 :else secret))))
-
-         dev {:doc "Start the dev environment: Postgres + nREPL on 7899. See bin/launchpad."
+ :tasks {dev {:doc "Start the dev environment: Postgres + nREPL on 7899. See bin/launchpad."
               :task (shell "bin/launchpad")}
 
          db:up {:doc "Start the dev Postgres in the background."
@@ -49,10 +26,19 @@
          build {:doc "Build the library jar into target/ (version from the latest v* git tag)."
                 :task (shell "clojure -T:build build")}
 
+         tag {:doc "Prepare and publish a release: promote the changelog's Unreleased section, bump the README, then commit, tag and push. Usage: bb tag 0.3.0"
+              :requires ([make])
+              :task (apply make/tag *command-line-args*)}
+
+         changelog-entry {:doc "Print one release's changelog section, for GitHub release notes. Defaults to the latest tag."
+                          :requires ([make])
+                          :task (apply make/changelog-entry *command-line-args*)}
+
          release {:doc "Build and deploy the library to Clojars. Reads the deploy token from 1Password, so `op` must be installed and signed in."
+                  :requires ([make])
                   :task (shell {:extra-env
                                 {"CLOJARS_USERNAME" "ovistoica"
-                                 "CLOJARS_PASSWORD" (op-read "op://Personal/Clojars Token/credential")}}
+                                 "CLOJARS_PASSWORD" (make/op-read "op://Personal/Clojars Token/credential")}}
                                "clojure -T:build release")}
          format:check {:doc "Check code formatting with cljfmt"
                        :task (shell "cljfmt" "check" "src" "test" "portfolio" "env" "dev" "resources")}

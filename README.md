@@ -666,6 +666,16 @@ Both are dev/test only — a library must never ship a logging backend.
 
 Note that kaocha captures output and only prints it for failing tests, so pass `--no-capture-output` when you want to watch steps go by.
 
+### Releasing
+
+```bash
+bb tag 0.3.0        # promote the changelog, bump the README, commit, tag and push
+bb release          # build and deploy to Clojars (token read from 1Password)
+bb changelog-entry  # print a release's notes, for pasting into a GitHub release
+```
+
+`bb tag` refuses to run on a dirty working tree, an existing tag, or an empty `## [Unreleased]` section, so a half-prepared release can't get out. It's deliberately separate from `bb release`: a botched tag never becomes a botched deploy. The logic lives in `scripts/make.clj`.
+
 ### Other tasks
 
 ```bash
