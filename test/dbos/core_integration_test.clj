@@ -15,8 +15,7 @@
     DBOS_TEST_DB_USER      (postgres)
     DBOS_TEST_DB_PASSWORD  (postgres)
 
-  DBOS creates its own system schema. Tagged :integration so the default unit
-  suite (which needs no database) stays green."
+  DBOS creates its own system schema."
   (:require
    [clojure.test :refer [deftest is testing use-fixtures]]
    [dbos.client :as client]

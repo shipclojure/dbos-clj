@@ -331,20 +331,19 @@ Map keys: `:name` (required), `:max-attempts`, `:retry-interval` (a `Duration`),
 with `dbos-clj` running steps can use the macros that inline the function definitions:
 
 ```clojure
- ;; Much more concise
+;; Much more concise
 (defn example-workflow [^DBOS dbos]
- (do-step! dbos "stepOne"
-  (Thread/sleep 5000)
-  (log/infof "Workflow %s step 1 completed!" (DBOS/workflowId)))
+  (do-step! dbos "stepOne"
+    (Thread/sleep 5000)
+    (log/infof "Workflow %s step 1 completed!" (DBOS/workflowId)))
 
- (do-step! dbos "stepTwo"
-  (Thread/sleep 5000)
-  (log/infof "Workflow %s step 2 completed!" (DBOS/workflowId))
+  (do-step! dbos "stepTwo"
+    (Thread/sleep 5000)
+    (log/infof "Workflow %s step 2 completed!" (DBOS/workflowId)))
 
- (do-step! dbos "stepThree"
-  (Thread/sleep 5000)
-  (log/infof "Workflow %s step 3 completed!" (DBOS/workflowId)))
-
+  (do-step! dbos "stepThree"
+    (Thread/sleep 5000)
+    (log/infof "Workflow %s step 3 completed!" (DBOS/workflowId))))
 ```
 
 ```clojure
@@ -581,39 +580,49 @@ Events are a durable key/value channel on a running workflow - the workflow publ
 
 ## Logging 
 
-`dbos-clj` supports logging each step name through [trove](https://github.com/taoensso/trove) - a tiny 150 LoC logging facade. To enable per step logging, you need to set a backend for trove: 
+`dbos-clj` supports logging each step name through [trove](https://github.com/taoensso/trove) - a tiny 150 LoC logging facade. Trove defaults to a console backend; point it at whichever logging library you actually use:
 
 ```clojure
-(trove/set-log-fn! (taoensso.trove.x/get-log-fn))
+(require '[taoensso.trove :as trove]
+         '[taoensso.trove.telemere :as trove-telemere])
+
+(trove/set-log-fn! (trove-telemere/get-log-fn))
 ```
 
-### Step name log context added to logs within step bodies
+Trove ships a `get-log-fn` per backend - `taoensso.trove.telemere`, `.timbre`, `.slf4j`, `.mulog`, `.tools-logging`, `.console`. Note that `taoensso.trove.slf4j` sends trove's *own* calls out to SLF4J; to capture DBOS's internal Java logging you need an SLF4J provider on the classpath (e.g. `com.taoensso/telemere-slf4j`, logback), otherwise SLF4J drops it with a "No SLF4J providers were found" warning.
 
-Consider the following scenario: 
+### Step context inside step bodies
+
+`dbos-clj` knows which step it is running, but your logging backend doesn't - so a bare log call inside a step body can't tell you which step it came from:
+
 ```clojure
-(defn api [method url]
-  ;; telemere log
-  (t/log! {:data {:method method :url url}
-           :id :api
+(defn call-api [method url]
+  (t/log! {:id :api
            :level :info
-           :message "Calling api"}
-          (http {:method method :url url})))
+           :msg "Calling api"
+           :data {:method method :url url}})
+  (http {:method method :url url}))
 
-(defn my-cool-workflow
-  [dbos input]
-  (let [result (dbos/run-step dbos "call-the-api"
-                 (api :post "/some_url"))) ;; I want the log here to include the `workflow/step` context
+(defn my-cool-workflow [dbos _input]
+  (dbos/run-step dbos "call-the-api"
+    (call-api :post "/some-url")))   ; want call-api's log tagged with this step
 ```
 
-`dbos-clj` supports injecting the step context for use inside the step body. You need to call `dbos/set-step-ctx-wrapper!` with your desired wrapper. Here is an example, adding the step context to logging providers: 
+`set-step-ctx-wrapper!` closes that gap. Give it a `(fn [ctx thunk])` that installs `ctx` into your backend's *own* context and then runs `thunk`; `dbos-clj` applies it around every step body, passing `{:workflow/step "call-the-api"}`:
 
 ```clojure
-(dbos/set-step-ctx-wrapper! (fn [ctx thunk] (t/with-ctx+ ctx (thunk)))) ;; Include the step context to telemere
-(dbos/set-step-ctx-wrapper! (fn [ctx thunk] (u/with-context ctx (thunk)))) ;; Include the step context to u/log logs
+;; Telemere
+(dbos/set-step-ctx-wrapper!
+ (fn [ctx thunk] (taoensso.telemere/with-ctx+ ctx (thunk))))
 
+;; μ/log
+(dbos/set-step-ctx-wrapper!
+ (fn [ctx thunk] (com.brunobonacci.mulog/with-context ctx (thunk))))
 ```
 
-By default this is a noop.
+`call-api` now logs with `:workflow/step "call-the-api"` attached, without knowing anything about DBOS.
+
+Defaults to a no-op, so nothing is injected into your backend unless you opt in.
 
 
 ## Development
@@ -636,11 +645,23 @@ The account owns them outright because DBOS creates and migrates its own schema 
 ### Tests
 
 ```bash
-bb test              # unit suite, no database needed
-bb test integration  # live-DBOS suite, needs the dev Postgres
+bb test                       # everything, needs the dev Postgres
+bb test --no-capture-output   # same, but show logs for passing tests too
+bb test --focus my-test       # extra args go straight to kaocha
 ```
 
-`bin/kaocha` loads `.env`, so the integration suite finds the same database as the REPL with no manual setup. Variables already set win, which is how CI points the same code at its own service container.
+`bin/kaocha` loads `.env`, so the tests find the same database as the REPL with no manual setup. Variables already set win, which is how CI points the same code at its own service container.
+
+### Logs
+
+`dev.clj`-style wiring lives in `dbos.dev-logging` (under `test/`, so it's on the classpath for both the REPL and the test runner). It is installed automatically by `dev/user.clj` in the REPL, and by a kaocha `pre-load` hook for tests. It does two things:
+
+- points **trove** — the facade the library logs steps through — at Telemere, so you see a `:step/start` signal per step, and any `t/log!` inside a step body inherits `:workflow/step` as context;
+- adds `telemere-slf4j`, an SLF4J provider, so DBOS's **internal Java logs** land in the same stream instead of being dropped with a "No SLF4J providers were found" warning.
+
+Both are dev/test only — a library must never ship a logging backend.
+
+Note that kaocha captures output and only prints it for failing tests, so pass `--no-capture-output` when you want to watch steps go by.
 
 ### Other tasks
 

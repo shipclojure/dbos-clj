@@ -1,4 +1,5 @@
-(ns user)
+(ns user
+  (:require [dbos.dev-logging :as dev-logging]))
 
 ;; Enable reflection warnings for the whole dev session. This lives here (dev
 ;; classpath only) rather than in the shipped `dbos.*` namespaces, so consumers
@@ -9,3 +10,6 @@
 ;; once user.clj finishes. Altering the root value makes it stick across
 ;; subsequent `(require ... :reload)`s in the REPL.
 (alter-var-root #'*warn-on-reflection* (constantly true))
+
+;; Route trove -> Telemere so workflow step logs are visible in the REPL.
+(dev-logging/install!)

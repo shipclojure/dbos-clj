@@ -19,7 +19,7 @@
          lint {:doc "Linting project's code"
                :task (shell "clj-kondo" "--parallel" "--lint" "src" "test")}
 
-         test {:doc "Run tests. Defaults to the unit suite; `bb test integration` needs the dev Postgres (`bb dev` or `bb db:up`)."
+         test {:doc "Run the tests. Needs the dev Postgres (`bb dev` or `bb db:up`). Extra args go to kaocha."
                :task (apply shell "bin/kaocha" *command-line-args*)}
 
          build {:doc "Build the library jar into target/ (version from the latest v* git tag)."

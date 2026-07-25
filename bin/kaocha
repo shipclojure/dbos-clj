@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Load .env so the :integration suite finds the docker-compose Postgres.
+# Load .env so the tests find the docker-compose Postgres.
 # Only fills in unset vars, so CI's explicit DBOS_TEST_* always wins.
 load_env() {
   local file="$1" line key value

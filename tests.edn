@@ -1,4 +1,9 @@
 #kaocha/v1
 {:tests [{:id :unit
           :source-paths ["src"]
-          :test-paths ["test"]}]}
+          :test-paths ["test"]}]
+ ;; :hooks is not on by default; without it the pre-load below is ignored.
+ ;; Merges with kaocha's defaults (randomize/filter/capture-output).
+ :plugins [:hooks]
+ ;; Route trove -> Telemere before tests load, so step logs are visible.
+ :kaocha.hooks/pre-load [dbos.dev-logging/install!]}
