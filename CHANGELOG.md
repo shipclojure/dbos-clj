@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The functions returning a workflow handle — `start-workflow!`, `resume-workflow!`, `add-derefable`, and the client's `enqueue-workflow!` and `retrieve-workflow` — now carry a `^WorkflowHandle` return hint, so calling `.workflowId` (or any other handle method) on their result no longer emits a reflection warning.
+
 ## [0.2.0] - 2026-07-25
 
 ### Added
@@ -29,5 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dbos.constants` — status strings and status sets as `.cljc`, shareable with a ClojureScript UI.
 - Application-version targeting, including resolving `:latest` at dispatch time.
 
-[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/shipclojure/dbos-clj/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/shipclojure/dbos-clj/releases/tag/v0.1.0

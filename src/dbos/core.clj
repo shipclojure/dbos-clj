@@ -355,6 +355,7 @@
 (defn add-derefable
   "Wrap a WorkflowHandle so @handle blocks and returns the (deserialized)
   result."
+  ^WorkflowHandle
   [^WorkflowHandle handle]
   (reify
     clojure.lang.IDeref
@@ -374,6 +375,7 @@
 (defn resume-workflow!
   "Resume a previously-cancelled/paused workflow by id, returning a deref-able
   WorkflowHandle. `dbos-or-client` is a DBOS or a DBOSClient."
+  ^WorkflowHandle
   [dbos-or-client workflow-id]
   (add-derefable (-resume-workflow! dbos-or-client workflow-id)))
 
@@ -613,6 +615,7 @@
 
   The workflow id is available inside the body via `(workflow-id)` and on the
   returned handle — it is NOT injected into `input`."
+  ^WorkflowHandle
   [^DBOS dbos wf-key id-or-opts input]
   (let [^DBOSIntegration integration (.integration dbos)
         {:keys [wf-name class-name]} (workflow-identity wf-key)

@@ -7,6 +7,7 @@
   (:import
    (dev.dbos.transact DBOSClient)
    (dev.dbos.transact.json DBOSSerializer)
+   (dev.dbos.transact.workflow WorkflowHandle)
    (javax.sql DataSource)))
 
 (defn create-client
@@ -55,6 +56,7 @@
                      {:some \"input\"})
 
   Returns a deref-able `WorkflowHandle`: `@handle` blocks for the result."
+  ^WorkflowHandle
   [^DBOSClient client wf-key opts workflow-data]
   (let [{:keys [wf-name class-name]} (core/workflow-identity wf-key)
         opts (core/->workflow-opts opts)
@@ -83,5 +85,6 @@
 
 (defn retrieve-workflow
   "Deref-able handle to an existing workflow by `workflow-id`, via the client."
+  ^WorkflowHandle
   [^DBOSClient client workflow-id]
   (core/add-derefable (.retrieveWorkflow client ^String workflow-id)))
