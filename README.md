@@ -16,13 +16,13 @@ The Java version of DBOS has some weird kinks when it comes to interop with cloj
 
 Deps:
 ```clojure
-com.shipclojure/dbos-clj {:mvn/version "0.2.1"}
+com.shipclojure/dbos-clj {:mvn/version "0.3.0"}
 ```
 
 Or lein:
 
 ```clojure
-[com.shipclojure/dbos-clj "0.2.1"]
+[com.shipclojure/dbos-clj "0.3.0"]
 ```
 
 
