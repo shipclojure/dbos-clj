@@ -65,14 +65,14 @@
   "Runtime half of `run-step|do-step`: bind step ctx, log start, run thunk.
 
   `trove/with-ctx+` carries `:workflow/step` on `trove/log!` calls in the body.
-  `trove/with-backend-ctx` additionally carries it into the backend's *native*
+  `trove/with-ctx-bridge` additionally carries it into the backend's *native*
   context (so a bare `t/log!` inherits it) — but only if the end user opted in
   with `{:bridge-ctx? true}` when building their log-fn. Otherwise a no-op."
   [step thunk]
   (let [step-name (step-display-name step)]
     (trove/with-ctx+ {:workflow/step step-name}
       (log-step-start! step-name)
-      (trove/with-backend-ctx (thunk)))))
+      (trove/with-ctx-bridge (thunk)))))
 
 (defn execute-step
   "Run a value-returning step via DBOS (result persisted). Redef seam for tests."

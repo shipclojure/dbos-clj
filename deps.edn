@@ -1,8 +1,10 @@
 {:paths ["src" "resources"]
  :deps {dev.dbos/transact {:mvn/version "1.0.0"}
-        ;; PRERELEASE: 1.2.0-alpha1 for the ctx/bridge API used by
-        ;; `run-in-step-ctx` (taoensso/trove#7). Drop the -alphaN when it ships.
-        com.taoensso/trove {:mvn/version "1.2.0-alpha1"}
+        ;; PRERELEASE: 1.2.0-alpha2 for the ctx/bridge API used by
+        ;; `run-in-step-ctx` (taoensso/trove#7). alpha2 renamed
+        ;; `with-backend-ctx` -> `with-ctx-bridge`, so alpha1 is NOT compatible.
+        ;; Drop the -alphaN when it ships.
+        com.taoensso/trove {:mvn/version "1.2.0-alpha2"}
         com.cognitect/transit-clj {:mvn/version "1.0.333"}}
  :aliases
  {:build

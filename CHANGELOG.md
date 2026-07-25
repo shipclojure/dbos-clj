@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Now requires trove 1.2.0-alpha2 or later.** trove renamed the macro this library uses to publish step context to your backend (`with-backend-ctx` became `with-ctx-bridge`), so 0.4.0-alpha1 does not work with trove 1.2.0-alpha2 and later. Nothing changes for callers: opting in is still `{:bridge-ctx? true}` on your log-fn.
+
 ## [0.4.0-alpha1] - 2026-07-25
 
 ### Changed
