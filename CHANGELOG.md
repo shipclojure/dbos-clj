@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0-alpha2] - 2026-07-25
+
 ### Changed
 
 - **Now requires trove 1.2.0-alpha2 or later.** trove renamed the macro this library uses to publish step context to your backend (`with-backend-ctx` became `with-ctx-bridge`), so 0.4.0-alpha1 does not work with trove 1.2.0-alpha2 and later. Nothing changes for callers: opting in is still `{:bridge-ctx? true}` on your log-fn.
@@ -64,7 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dbos.constants` — status strings and status sets as `.cljc`, shareable with a ClojureScript UI.
 - Application-version targeting, including resolving `:latest` at dispatch time.
 
-[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.4.0-alpha1...HEAD
+[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.4.0-alpha2...HEAD
+[0.4.0-alpha2]: https://github.com/shipclojure/dbos-clj/compare/v0.4.0-alpha1...v0.4.0-alpha2
 [0.4.0-alpha1]: https://github.com/shipclojure/dbos-clj/compare/v0.3.0...v0.4.0-alpha1
 [0.3.0]: https://github.com/shipclojure/dbos-clj/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/shipclojure/dbos-clj/compare/v0.2.0...v0.2.1
