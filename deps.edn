@@ -1,6 +1,7 @@
 {:paths ["src" "resources"]
  :deps {dev.dbos/transact {:mvn/version "1.0.0"}
-        com.taoensso/trove {:mvn/version "1.1.0"}
+        ;; Logging facade & context bridging
+        com.taoensso/trove {:mvn/version "1.2.0"}
         com.cognitect/transit-clj {:mvn/version "1.0.333"}}
  :aliases
  {:build
@@ -9,25 +10,20 @@
    :ns-default build
    :extra-paths ["build"]}
   :dev
-  {;; Telemere backs trove (see dbos.dev-logging) for step logs; telemere-slf4j
-   ;; is an SLF4J provider, so DBOS's internal Java logs land in the same
-   ;; stream. A library must never ship a logging backend, hence dev/test only.
-   :extra-deps {com.taoensso/telemere {:mvn/version "1.2.0"}
+  {:extra-deps {com.taoensso/telemere {:mvn/version "1.2.0"}
                 com.taoensso/telemere-slf4j {:mvn/version "1.2.0"}}
    :extra-paths ["dev" "test" "example/resources" "example/src"]}
-  ;; Classpath only, no :main-opts — bin/launchpad puts this on the REPL
-  ;; classpath and :main-opts would hijack its nREPL bootstrap.
+
+  ;; No :main-opts — launchpad puts this on the REPL classpath and they'd
+  ;; hijack its nREPL bootstrap.
   :test
   {:extra-deps
    {lambdaisland/kaocha {:mvn/version "1.91.1392"}
-    ;; deps of the example/ consumer the integration tests boot; telemere also
-    ;; backs trove for step logs, and telemere-slf4j pulls in DBOS's internal
-    ;; Java logs (see dbos.dev-logging)
     integrant/integrant {:mvn/version "1.0.1"}
     com.taoensso/telemere {:mvn/version "1.2.0"}
     com.taoensso/telemere-slf4j {:mvn/version "1.2.0"}}
    :extra-paths ["test" "example/src" "example/resources"]}
 
-  ;; Kaocha entrypoint. Always paired: clojure -M:test:test-runner
+  ;; Kaocha entrypoint. Always paired with :test alias
   :test-runner
   {:main-opts ["-m" "kaocha.runner"]}}}

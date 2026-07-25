@@ -6,8 +6,6 @@
   Lives under test/ because that path is on the classpath for both the :dev
   REPL and the :test runner; it is dev tooling, not a test."
   (:require
-   [dbos.core :as core]
-   [taoensso.telemere :as t]
    [taoensso.trove :as trove]
    [taoensso.trove.telemere :as trove-telemere]))
 
@@ -18,8 +16,9 @@
   Idempotent. Takes and returns an optional argument so it can be used as a
   kaocha hook."
   ([]
-   (trove/set-log-fn! (trove-telemere/get-log-fn))
-   (core/set-step-ctx-wrapper! (fn [ctx thunk] (t/with-ctx+ ctx (thunk))))
+   ;; :bridge-ctx? opts into trove merging its ctx into Telemere's native ctx,
+   ;; which is what makes a bare t/log! inside a step body carry :workflow/step.
+   (trove/set-log-fn! (trove-telemere/get-log-fn {:bridge-ctx? true}))
    nil)
   ([x]
    (install!)

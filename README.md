@@ -641,21 +641,21 @@ Trove ships a `get-log-fn` per backend - `taoensso.trove.telemere`, `.timbre`, `
     (call-api :post "/some-url")))   ; want call-api's log tagged with this step
 ```
 
-`set-step-ctx-wrapper!` closes that gap. Give it a `(fn [ctx thunk])` that installs `ctx` into your backend's *own* context and then runs `thunk`; `dbos-clj` applies it around every step body, passing `{:workflow/step "call-the-api"}`:
+Trove's context API closes that gap. `dbos-clj` binds `trove/*ctx*` to `{:workflow/step "call-the-api"}` around every step body, so any `trove/log!` made inside a step carries the step name for free.
+
+To tag *native* backend calls too — a bare `t/log!`, a `μ/log`, an MDC-aware SLF4J layout — opt into trove's context bridge when you build your log-fn:
 
 ```clojure
 ;; Telemere
-(dbos/set-step-ctx-wrapper!
- (fn [ctx thunk] (taoensso.telemere/with-ctx+ ctx (thunk))))
+(trove/set-log-fn! (trove-telemere/get-log-fn {:bridge-ctx? true}))
 
 ;; μ/log
-(dbos/set-step-ctx-wrapper!
- (fn [ctx thunk] (com.brunobonacci.mulog/with-context ctx (thunk))))
+(trove/set-log-fn! (trove-mulog/get-log-fn {:bridge-ctx? true}))
 ```
 
 `call-api` now logs with `:workflow/step "call-the-api"` attached, without knowing anything about DBOS.
 
-Defaults to a no-op, so nothing is injected into your backend unless you opt in.
+The bridge is off by default, so nothing is injected into your backend's own context unless you ask for it. It is supported by the Telemere, Timbre, μ/log and SLF4J (MDC-capable provider) backends.
 
 
 ## Development
@@ -689,7 +689,7 @@ bb test --focus my-test       # extra args go straight to kaocha
 
 `dev.clj`-style wiring lives in `dbos.dev-logging` (under `test/`, so it's on the classpath for both the REPL and the test runner). It is installed automatically by `dev/user.clj` in the REPL, and by a kaocha `pre-load` hook for tests. It does two things:
 
-- points **trove** — the facade the library logs steps through — at Telemere, so you see a `:step/start` signal per step, and any `t/log!` inside a step body inherits `:workflow/step` as context;
+- points **trove** — the facade the library logs steps through — at Telemere with `{:bridge-ctx? true}`, so you see a `:step/start` signal per step, and any `t/log!` inside a step body inherits `:workflow/step` as context;
 - adds `telemere-slf4j`, an SLF4J provider, so DBOS's **internal Java logs** land in the same stream instead of being dropped with a "No SLF4J providers were found" warning.
 
 Both are dev/test only — a library must never ship a logging backend.

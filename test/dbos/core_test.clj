@@ -381,50 +381,58 @@
   (testing "an invalid input throws"
     (is (thrown? clojure.lang.ExceptionInfo (core/step-display-name 42)))))
 
-(deftest step-ctx-wrapper-default-test
-  (testing "the default root wrapper is a pass-through returning the thunk's value"
-    (is (= 99 (core/*step-ctx-wrapper* {:any :ctx} (fn [] 99))))))
+(defn- ctx-seen-by-body
+  [step]
+  (let [seen (atom nil)]
+    [(#'core/run-in-step-ctx step (fn [] (reset! seen trove/*ctx*) :result))
+     @seen]))
 
-(deftest run-in-step-ctx-applies-wrapper-test
-  (testing "the wrapper runs around the thunk and receives the normalized ctx"
-    (let [seen (atom nil)]
-      (binding [core/*step-ctx-wrapper*
-                (fn [ctx thunk] (reset! seen ctx) (thunk))]
-        (let [ret (#'core/run-in-step-ctx "fetch" (fn [] :result))]
-          (is (= :result ret))
-          (is (= {:workflow/step "fetch"} @seen))))))
+(deftest run-in-step-ctx-binds-trove-ctx-test
+  (testing "the step body sees :workflow/step in trove/*ctx*, and its value is returned"
+    (is (= [:result {:workflow/step "fetch"}] (ctx-seen-by-body "fetch"))))
 
   (testing "a map step is normalized to its :name in the ctx (carries name, not raw map)"
-    (let [seen (atom nil)]
-      (binding [core/*step-ctx-wrapper*
-                (fn [ctx thunk] (reset! seen ctx) (thunk))]
-        (#'core/run-in-step-ctx {:name "fetch-user" :max-attempts 3} (fn [] :ok))
-        (is (= {:workflow/step "fetch-user"} @seen)))))
+    (is (= {:workflow/step "fetch-user"}
+           (second (ctx-seen-by-body {:name "fetch-user" :max-attempts 3})))))
 
   (testing "a StepOptions step is normalized to its name in the ctx (carries name, not raw object)"
-    (let [seen (atom nil)]
-      (binding [core/*step-ctx-wrapper*
-                (fn [ctx thunk] (reset! seen ctx) (thunk))]
-        (#'core/run-in-step-ctx (StepOptions. "prebuilt") (fn [] :ok))
-        (is (= {:workflow/step "prebuilt"} @seen))))))
+    (is (= {:workflow/step "prebuilt"}
+           (second (ctx-seen-by-body (StepOptions. "prebuilt"))))))
 
-(deftest set-step-ctx-wrapper!-test
-  (testing "mutates the root value of *step-ctx-wrapper* (restored afterward)"
-    (let [orig core/*step-ctx-wrapper*
-          marker (fn [_ctx thunk] (thunk))]
-      (try
-        (core/set-step-ctx-wrapper! marker)
-        (is (identical? marker core/*step-ctx-wrapper*))
-        (finally
-          (core/set-step-ctx-wrapper! orig))))))
+  (testing "ctx does not leak past the step boundary"
+    (#'core/run-in-step-ctx "fetch" (fn [] :ok))
+    (is (nil? trove/*ctx*)))
+
+  (testing "nested steps merge, inner wins"
+    (is (= {:workflow/step "inner"}
+           (#'core/run-in-step-ctx "outer"
+                                   (fn [] (#'core/run-in-step-ctx "inner" (fn [] trove/*ctx*))))))))
+
+(deftest run-in-step-ctx-backend-bridge-test
+  (testing "a log-fn that opted into the ctx bridge sees the step ctx around the body"
+    (let [seen (atom nil)
+          log-fn (trove/add-ctx-bridge
+                  (fn [_ns _coords _level _id _payload_] nil)
+                  (fn [ctx thunk] (reset! seen ctx) (thunk)))]
+      (binding [trove/*log-fn* log-fn]
+        (is (= :result (#'core/run-in-step-ctx "fetch" (fn [] :result))))
+        (is (= {:workflow/step "fetch"} @seen)))))
+
+  (testing "a plain log-fn (no bridge) still runs the body and receives :step/start log"
+    (let [called (atom false)]
+      (binding [trove/*log-fn* (fn [_ns _coords _level _id _payload_] (reset! called true))]
+        (is (= :result (#'core/run-in-step-ctx "fetch" (fn [] :result))))
+        (is (true? @called) "the log-fn still receives the :step/start log")))))
 
 (deftest run-in-step-ctx-emits-step-start-log-test
-  (testing "a :step/start log is emitted with the step name under :data"
+  (testing "a :step/start log is emitted, with step name carried in trove's :ctx"
     (let [logs (atom [])]
       (binding [trove/*log-fn* (fn [_ns _coords level id payload_]
                                  (swap! logs conj {:level level :id id
                                                    :payload (force payload_)}))]
         (#'core/run-in-step-ctx "fetch" (fn [] :ok))
-        (let [entry (first (filter #(= :step/start (:id %)) @logs))]
-          (is (some? entry) "a :step/start log is emitted")
-          (is (= {:workflow/step "fetch"} (get-in entry [:payload :data]))))))))
+        (let [entry (first @logs)]
+          (is (= {:id :step/start,
+                  :level :info,
+                  :payload {:ctx {:workflow/step "fetch"}, :msg "Step start"}}
+                 entry)))))))
