@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0-alpha1] - 2026-07-25
+
 ### Changed
 
 - Step context now goes through [trove](https://github.com/taoensso/trove)'s own context API instead of a `dbos-clj`-specific hook. Every step body runs inside `trove/with-ctx+ {:workflow/step "<name>"}`, so any `trove/log!` in a step carries the step name with no setup at all.
@@ -58,7 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dbos.constants` — status strings and status sets as `.cljc`, shareable with a ClojureScript UI.
 - Application-version targeting, including resolving `:latest` at dispatch time.
 
-[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.3.0...HEAD
+[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.4.0-alpha1...HEAD
+[0.4.0-alpha1]: https://github.com/shipclojure/dbos-clj/compare/v0.3.0...v0.4.0-alpha1
 [0.3.0]: https://github.com/shipclojure/dbos-clj/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/shipclojure/dbos-clj/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/shipclojure/dbos-clj/compare/v0.1.0...v0.2.0
