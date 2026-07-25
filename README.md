@@ -544,6 +544,36 @@ The read-side lives in `dbos.query` and works the same on a DBOS instance or a `
 
 Status strings and handy sets (`terminal-statuses`, `in-progress-statuses`, ...) live in `dbos.constants`, which is pure `.cljc` data - safe to share with a ClojureScript UI.
 
+### Inspecting a whole workflow tree
+
+When a workflow fans out, the interesting state is spread across the parent and all its children. `workflow-tree` walks that for you and hands back the whole execution as one value - the parent's status map plus `:steps`, with every child expanded in place, recursively:
+
+```clojure
+(clojure.pprint/pprint (query/workflow-tree dbos-instance "sync-all-users"))
+;; =>
+;; {:workflow-id "sync-all-users"
+;;  :workflow-name "sync-all"
+;;  :status "SUCCESS"
+;;  :input [{:n 3}]
+;;  :output {...}
+;;  :steps [{:function-id 0 :function-name "gather-input" :output [1 2 3] ...}
+;;          {:function-id 1 :function-name "sync-user"
+;;           :child-workflow-id "sync-all-users|item-1"
+;;           :child-workflow {:workflow-id "sync-all-users|item-1"
+;;                            :status "SUCCESS"
+;;                            :steps [...]}}   ; ... and so on, recursively
+;;          ...]}
+```
+
+Inputs and outputs come back as real Clojure data - DBOS deserializes them with the serializer the instance or client was built with, so there is nothing to unwrap by hand.
+
+Two things worth knowing about the shape:
+
+- Awaiting a child records a **second** step (`DBOS.getResult`) pointing at the same child. The child is expanded once, at the step that started it; the awaiting step keeps just its `:child-workflow-id`.
+- `workflow-sleep` is durable, so it shows up as a `DBOS.sleep` step whose output is the wake-up time.
+
+Pass `{:max-depth n}` to stop expanding at a given depth (default 10); deeper steps keep `:child-workflow-id` but aren't expanded. It's one query per workflow in the tree, so it's a debugging tool - not something for a hot path.
+
 ## Cancelling & resuming workflows
 
 `cancel-workflow!` and `resume-workflow!` manage in-flight or stuck workflows. Like the query fns, they work on either a DBOS instance or a `DBOSClient`, so you can drive them from the executor or from a different process:

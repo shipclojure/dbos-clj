@@ -141,3 +141,57 @@
   :completed-at-epoch-ms, and :serialization."
   [queryable workflow-id]
   (mapv step-info->map (-list-workflow-steps queryable workflow-id)))
+
+(defn- expand-tree
+  [queryable workflow-id {:keys [max-depth] :as opts} depth path]
+  (when-let [status (get-workflow-status queryable workflow-id)]
+    (let [expand? (fn [expanded child-id]
+                    (and child-id
+                         (< depth max-depth)
+                         ;; a child is referenced twice — once where it was
+                         ;; started, again by the DBOS.getResult step that
+                         ;; awaited it. Expand the first mention only.
+                         (not (contains? expanded child-id))
+                         ;; guard against a malformed parent/child cycle
+                         (not (contains? path child-id))))
+          [steps _]
+          (reduce (fn [[acc expanded] {:keys [child-workflow-id] :as step}]
+                    (if (expand? expanded child-workflow-id)
+                      [(conj acc (assoc step :child-workflow
+                                        (expand-tree queryable child-workflow-id opts
+                                                     (inc depth)
+                                                     (conj path child-workflow-id))))
+                       (conj expanded child-workflow-id)]
+                      [(conj acc step) expanded]))
+                  [[] #{}]
+                  (list-workflow-steps queryable workflow-id))]
+      (assoc status :steps steps))))
+
+(defn workflow-tree
+  "A workflow with its steps, and every child workflow expanded in place — the
+  whole durable execution as one data structure, for debugging at the REPL.
+  Returns nil when the workflow doesn't exist.
+
+  The result is a `get-workflow-status` map plus `:steps`. Each step keeps its
+  `:child-workflow-id` and, when it started one, gains `:child-workflow` with
+  that child's own tree — recursively, so grandchildren are expanded too.
+
+  Awaiting a child records a second `DBOS.getResult` step pointing at the same
+  child, so each child is expanded once (at the step that started it); the
+  awaiting step keeps just the `:child-workflow-id`.
+
+  Inputs and outputs come back as real Clojure data: DBOS deserializes them
+  with the serializer the instance/client was built with.
+
+  Options:
+  - `:max-depth` how deep to expand (default 10). Steps deeper than this keep
+    `:child-workflow-id` but are not expanded.
+
+  This is one query per workflow in the tree, so it's a debugging tool — not
+  something to call on a hot path.
+
+    (clojure.pprint/pprint (workflow-tree dbos \"sync-user-john\"))"
+  ([queryable workflow-id]
+   (workflow-tree queryable workflow-id nil))
+  ([queryable workflow-id opts]
+   (expand-tree queryable workflow-id (merge {:max-depth 10} opts) 0 #{workflow-id})))

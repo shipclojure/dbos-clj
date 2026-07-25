@@ -9,52 +9,27 @@
   implicit parent/child linkage) and the consumer-facing surfaces (Integrant
   lifecycle, client enqueue/query) rather than any domain logic.
 
-  Requires a reachable Postgres. Configure via env vars (defaults in
-  parens):
-    DBOS_TEST_DATABASE_URL (jdbc:postgresql://localhost:5432/dbos_clj_test)
-    DBOS_TEST_DB_USER      (postgres)
-    DBOS_TEST_DB_PASSWORD  (postgres)
-
-  DBOS creates its own system schema."
+  The system fixture lives in `dbos.test-system`, which documents the env vars
+  and the Postgres it needs."
   (:require
    [clojure.test :refer [deftest is testing use-fixtures]]
    [dbos.client :as client]
    [dbos.core :as core]
-   [dbos.example.serializer :as serializer]
-   [dbos.example.system :as system]
-   [dbos.query :as query]))
+   [dbos.query :as query]
+   [dbos.test-system :as test-system :refer [*client* *instance*]])
+  (:import
+   (dev.dbos.transact.workflow WorkflowHandle)))
 
-(def ^:private example-queue-name system/queue-name)
+(def ^:private example-queue-name test-system/queue-name)
 
-(defn- env [k default] (or (System/getenv k) default))
+(use-fixtures :once test-system/with-example-system)
 
-(def ^:private ^:dynamic *instance* nil)
-(def ^:private ^:dynamic *client* nil)
-
-(defn- with-example-system [f]
-  (let [sys (system/start!)
-        the-client (client/create-client
-                    {:database-url (env "DBOS_TEST_DATABASE_URL"
-                                        "jdbc:postgresql://localhost:5432/dbos_clj_test")
-                     :db-user (env "DBOS_TEST_DB_USER" "postgres")
-                     :db-password (env "DBOS_TEST_DB_PASSWORD" "postgres")
-                     ;; the client must share the instance's serializer so the
-                     ;; two agree on the wire format (java.time handlers, etc.)
-                     :serializer (serializer/transit-serializer)})]
-    (try
-      (binding [*instance* (:dbos/instance sys)
-                *client* the-client]
-        (f))
-      (finally
-        (.close the-client)
-        (system/stop! sys)))))
-
-(use-fixtures :once with-example-system)
-
-(defn- start-dummy! [wf-id input]
+(defn- start-dummy! ^WorkflowHandle [wf-id input]
   (core/start-workflow! *instance* :dbos.example/dummy wf-id input))
 
-(defn- start-parent! [wf-id input]
+;; ^WorkflowHandle: a return hint doesn't propagate through a wrapper fn, so
+;; these need their own even though `start-workflow!` carries one.
+(defn- start-parent! ^WorkflowHandle [wf-id input]
   (core/start-workflow! *instance* :dbos.example/dummy-parent wf-id input))
 
 (deftest ^:integration dummy-workflow-test

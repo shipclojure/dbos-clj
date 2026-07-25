@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `dbos.query/workflow-tree` returns a workflow with its steps and every child workflow expanded in place, recursively — the whole durable execution as one value, for debugging a fan-out at the REPL. Inputs and outputs come back as real Clojure data. Takes `{:max-depth n}` (default 10).
+
 ## [0.2.1] - 2026-07-25
 
 ### Fixed

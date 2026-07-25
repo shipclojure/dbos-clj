@@ -41,6 +41,6 @@
                                  "CLOJARS_PASSWORD" (make/op-read "op://Personal/Clojars Token/credential")}}
                                "clojure -T:build release")}
          format:check {:doc "Check code formatting with cljfmt"
-                       :task (shell "cljfmt" "check" "src" "test" "portfolio" "env" "dev" "resources")}
+                       :task (shell "cljfmt" "check" "src" "test" "dev" "example")}
          format:project {:doc "Run cljfmt formatting on the entire codebase"
-                         :task (shell "cljfmt" "fix" "src" "test" "portfolio" "env" "dev" "resources")}}}
+                         :task (shell "cljfmt" "fix" "src" "test" "dev" "example")}}}
