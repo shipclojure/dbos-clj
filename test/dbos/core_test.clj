@@ -1,7 +1,8 @@
 (ns dbos.core-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [dbos.core :as core])
+   [dbos.core :as core]
+   [taoensso.trove :as trove])
   (:import
    (dev.dbos.transact DBOSClient$EnqueueOptions StartWorkflowOptions)
    (dev.dbos.transact.config DBOSConfig)
@@ -359,3 +360,67 @@
         (let [data (ex-data e)]
           (is (= :bare (:workflow/key data)))
           (is (seq (:workflow/validation-errors data))))))))
+
+
+;; -- Step log context ---------------------------------------------------------
+
+(deftest step-display-name-test
+  (testing "a string returns itself"
+    (is (= "fetch" (core/step-display-name "fetch"))))
+
+  (testing "a map returns its :name"
+    (is (= "fetch-user" (core/step-display-name {:name "fetch-user" :max-attempts 3}))))
+
+  (testing "a pre-built StepOptions returns its name"
+    (is (= "prebuilt" (core/step-display-name (StepOptions. "prebuilt")))))
+
+  (testing "an invalid input throws"
+    (is (thrown? clojure.lang.ExceptionInfo (core/step-display-name 42)))))
+
+(deftest step-ctx-wrapper-default-test
+  (testing "the default root wrapper is a pass-through returning the thunk's value"
+    (is (= 99 (core/*step-ctx-wrapper* {:any :ctx} (fn [] 99))))))
+
+(deftest run-in-step-ctx-applies-wrapper-test
+  (testing "the wrapper runs around the thunk and receives the normalized ctx"
+    (let [seen (atom nil)]
+      (binding [core/*step-ctx-wrapper*
+                (fn [ctx thunk] (reset! seen ctx) (thunk))]
+        (let [ret (#'core/run-in-step-ctx "fetch" (fn [] :result))]
+          (is (= :result ret))
+          (is (= {:workflow/step "fetch"} @seen))))))
+
+  (testing "a map step is normalized to its :name in the ctx (carries name, not raw map)"
+    (let [seen (atom nil)]
+      (binding [core/*step-ctx-wrapper*
+                (fn [ctx thunk] (reset! seen ctx) (thunk))]
+        (#'core/run-in-step-ctx {:name "fetch-user" :max-attempts 3} (fn [] :ok))
+        (is (= {:workflow/step "fetch-user"} @seen)))))
+
+  (testing "a StepOptions step is normalized to its name in the ctx (carries name, not raw object)"
+    (let [seen (atom nil)]
+      (binding [core/*step-ctx-wrapper*
+                (fn [ctx thunk] (reset! seen ctx) (thunk))]
+        (#'core/run-in-step-ctx (StepOptions. "prebuilt") (fn [] :ok))
+        (is (= {:workflow/step "prebuilt"} @seen))))))
+
+(deftest set-step-ctx-wrapper!-test
+  (testing "mutates the root value of *step-ctx-wrapper* (restored afterward)"
+    (let [orig core/*step-ctx-wrapper*
+          marker (fn [_ctx thunk] (thunk))]
+      (try
+        (core/set-step-ctx-wrapper! marker)
+        (is (identical? marker core/*step-ctx-wrapper*))
+        (finally
+          (core/set-step-ctx-wrapper! orig))))))
+
+(deftest run-in-step-ctx-emits-step-start-log-test
+  (testing "a :step/start log is emitted with the step name under :data"
+    (let [logs (atom [])]
+      (binding [trove/*log-fn* (fn [_ns _coords level id payload_]
+                                 (swap! logs conj {:level level :id id
+                                                   :payload (force payload_)}))]
+        (#'core/run-in-step-ctx "fetch" (fn [] :ok))
+        (let [entry (first (filter #(= :step/start (:id %)) @logs))]
+          (is (some? entry) "a :step/start log is emitted")
+          (is (= {:workflow/step "fetch"} (get-in entry [:payload :data]))))))))

@@ -1,7 +1,8 @@
 (ns dbos.core
   (:require
    [clojure.string :as str]
-   [dbos.serializer :as serializer])
+   [dbos.serializer :as serializer]
+   [taoensso.trove :as trove])
   (:import
    (dev.dbos.transact DBOS DBOSClient DBOSClient$EnqueueOptions StartWorkflowOptions)
    (dev.dbos.transact.config DBOSConfig)
@@ -16,6 +17,16 @@
   (when-not (str/blank? s) s))
 
 ;; -- Step execution -----------------------------------------------------------
+
+(defn step-display-name
+  [step]
+  (cond
+    (string? step) step
+    (map? step) (:name step)
+    (instance? StepOptions step) (.name ^StepOptions step)
+    :else
+    (throw (ex-info "Invalid step provider. Must be string, map or StepOptions instance"
+                    {:step step}))))
 
 (defn ->step-options
   "Build a StepOptions from a step-name string, an options map, or a pre-built
@@ -44,18 +55,60 @@
     :else (throw (ex-info "step must be a name string, options map, or StepOptions"
                           {:step x}))))
 
+(defn log-step-start! [step-name]
+  (trove/log! {:level :info
+               :message "Step start"
+               :id :step/start
+               :data {:workflow/step step-name}}))
+
+(def ^:dynamic *step-ctx-wrapper*
+  "Fn applied around every step body to bridge the step's context into your
+  logging backend's *native* scope — so bare backend log calls in the body
+  (Telemere `t/log!`, μ/log `μ/log`) inherit it, not just `trove/log!`.
+
+  Value should be a (fn [ctx-map thunk]) that runs `thunk` with `ctx-map`
+  installed in the backend's own context, returning thunk's result. e.g.:
+
+    (fn [ctx thunk] (taoensso.telemere/with-ctx+ ctx (thunk)))   ; Telemere
+    (fn [ctx thunk] (com.brunobonacci.mulog/with-context ctx (thunk))) ; μ/log
+
+  Default is a no-op (dbos-clj injects nothing into your backend).
+
+  Re/bind dynamic value using `binding`.
+  Modify  root (default) value using `set-step-ctx-wrapper!`."
+  (fn [_ctx thunk] (thunk)))
+
+(defn set-step-ctx-wrapper!
+  "Sets the root value of `*step-ctx-wrapper*` (see its docstring)."
+  [f]
+  (alter-var-root #'*step-ctx-wrapper* (constantly f)))
+
+(defn- ^:no-doc run-in-step-ctx
+  "Runtime half of `run-step|do-step`: install step ctx (Trove + native bridge), run thunk."
+  [step thunk]
+  (let [step-name (step-display-name step)
+        ctx {:workflow/step step-name}]
+    (log-step-start! step-name)
+    (*step-ctx-wrapper* ctx thunk)))
+
+
 (defn execute-step
   "Run a value-returning step via DBOS (result persisted). Redef seam for tests."
   [^DBOS dbos step thunk]
   (.runStep dbos
-            ^ThrowingSupplier (reify ThrowingSupplier (execute [_] (thunk)))
+            ^ThrowingSupplier (reify ThrowingSupplier
+                                (execute [_]
+                                  (run-in-step-ctx step thunk)))
             ^StepOptions (->step-options step)))
 
 (defn execute-do-step!
   "Run a side-effect-only step via DBOS (result NOT persisted). Redef seam for tests."
   [^DBOS dbos step thunk]
   (.runStep dbos
-            ^ThrowingRunnable (reify ThrowingRunnable (execute [_] (thunk) nil))
+            ^ThrowingRunnable (reify ThrowingRunnable
+                                (execute [_]
+                                  (run-in-step-ctx step thunk)
+                                  nil))
             ^StepOptions (->step-options step)))
 
 (defmacro run-step
@@ -63,16 +116,18 @@
   `step` is a name string, or an options map for retries (see `->step-options`),
   or a pre-built StepOptions."
   [dbos step & body]
-  `(let [step# ~step]
-     (execute-step ~dbos step# (fn [] ~@body))))
+  `(execute-step ~dbos ~step (fn [] ~@body)))
 
 (defmacro do-step!
   "Run a workflow step for SIDE-EFFECTS only; result NOT persisted.
   `step` is a name string, or an options map for retries (see `->step-options`),
   or a pre-built StepOptions."
   [dbos step & body]
-  `(let [step# ~step]
-     (execute-do-step! ~dbos step# (fn [] ~@body))))
+  `(execute-do-step! ~dbos ~step (fn [] ~@body)))
+
+(comment
+
+  (do-step! ::hello {:name "Hello"} (prn 1)))
 
 (defn workflow-sleep
   "Durably sleep the current workflow — the wake-up time is persisted, not the

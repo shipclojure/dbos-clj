@@ -579,6 +579,43 @@ Events are a durable key/value channel on a running workflow - the workflow publ
 ;; => {:done 3 :total 10}
 ```
 
+## Logging 
+
+`dbos-clj` supports logging each step name through [trove](https://github.com/taoensso/trove) - a tiny 150 LoC logging facade. To enable per step logging, you need to set a backend for trove: 
+
+```clojure
+(trove/set-log-fn! (taoensso.trove.x/get-log-fn))
+```
+
+### Step name log context added to logs within step bodies
+
+Consider the following scenario: 
+```clojure
+(defn api [method url]
+  ;; telemere log
+  (t/log! {:data {:method method :url url}
+           :id :api
+           :level :info
+           :message "Calling api"}
+          (http {:method method :url url})))
+
+(defn my-cool-workflow
+  [dbos input]
+  (let [result (dbos/run-step dbos "call-the-api"
+                 (api :post "/some_url"))) ;; I want the log here to include the `workflow/step` context
+```
+
+`dbos-clj` supports injecting the step context for use inside the step body. You need to call `dbos/set-step-ctx-wrapper!` with your desired wrapper. Here is an example, adding the step context to logging providers: 
+
+```clojure
+(dbos/set-step-ctx-wrapper! (fn [ctx thunk] (t/with-ctx+ ctx (thunk)))) ;; Include the step context to telemere
+(dbos/set-step-ctx-wrapper! (fn [ctx thunk] (u/with-context ctx (thunk)))) ;; Include the step context to u/log logs
+
+```
+
+By default this is a noop.
+
+
 ## Acknowledgments
 
 `dbos-clj` is a thin Clojure wrapper over [DBOS Transact](https://github.com/dbos-inc/dbos-transact-java). All the hard durable-execution machinery - the workflow engine, crash recovery, queues, scheduling, events, and Postgres-backed persistence - is theirs; this library only adds Clojure ergonomics (plain-data options, macros, a Transit serializer, and derefable handles) on top. Huge thanks to the [DBOS](https://www.dbos.dev/) team for building and open-sourcing it.
