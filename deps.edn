@@ -14,7 +14,7 @@
    ;; stream. A library must never ship a logging backend, hence dev/test only.
    :extra-deps {com.taoensso/telemere {:mvn/version "1.2.0"}
                 com.taoensso/telemere-slf4j {:mvn/version "1.2.0"}}
-   :extra-paths ["dev" "test"]}
+   :extra-paths ["dev" "test" "example/resources" "example/src"]}
   ;; Classpath only, no :main-opts — bin/launchpad puts this on the REPL
   ;; classpath and :main-opts would hijack its nREPL bootstrap.
   :test
