@@ -35,8 +35,8 @@
       (fail! "git" (str/join " " args) "failed:" (str/trim err)))
     (str/trim out)))
 
-(defn- latest-version
-  "Highest `v*` tag, without the leading v.
+(defn- version-tags
+  "All `v*` tags, newest first, without the leading v.
 
   Sorted by version rather than `git describe`, which resolves by commit
   topology — that picks arbitrarily when two tags share a commit, and would
@@ -44,9 +44,23 @@
   []
   (let [{:keys [exit out]} (process/sh ["git" "tag" "-l" "v*" "--sort=-v:refname"])]
     (when (zero? exit)
-      (some-> (first (str/split-lines (str/trim out)))
-              not-empty
-              (str/replace #"^v" "")))))
+      (->> (str/split-lines (str/trim out))
+           (remove str/blank?)
+           (mapv #(str/replace % #"^v" ""))))))
+
+(defn- latest-version
+  "Highest `v*` tag, prereleases included."
+  []
+  (first (version-tags)))
+
+(defn- previous-release
+  "Highest stable `v*` tag, for the compare link.
+
+  Prereleases are skipped: they get squashed into the release's single
+  changelog entry, so linking to v0.4.0-alpha2 would show a diff that
+  doesn't match what that entry describes."
+  []
+  (first (filter #(re-matches #"\d+\.\d+\.\d+" %) (version-tags))))
 
 (defn- changelog-sections
   "Parse the changelog into {version body}. Link-reference lines are dropped so
@@ -110,8 +124,10 @@
     (replace-in-file! readme re (fn [[_ before after]] (str before version after)))))
 
 (defn- ensure-releasable! [version]
-  (when-not (re-matches #"\d+\.\d+\.\d+" version)
-    (fail! "Version must be MAJOR.MINOR.PATCH, got:" version))
+  ;; MAJOR.MINOR.PATCH with an optional semver prerelease suffix, e.g.
+  ;; 0.4.0-alpha1 — dot-separated alphanumeric identifiers.
+  (when-not (re-matches #"\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?" version)
+    (fail! "Version must be MAJOR.MINOR.PATCH[-PRERELEASE], got:" version))
   (when (seq (git "status" "--porcelain"))
     (fail! "Working tree is dirty — commit or stash first."))
   (when (seq (git "tag" "-l" (str "v" version)))
@@ -131,8 +147,8 @@
     (when-not version
       (fail! "Usage: bb tag <version>   e.g. bb tag 0.3.0"))
     (ensure-releasable! version)
-    (let [previous (or (latest-version)
-                       (fail! "No previous v* tag to compare the release against."))]
+    (let [previous (or (previous-release)
+                       (fail! "No previous stable v* tag to compare the release against."))]
       (shell "git fetch origin")
       (shell "git pull origin HEAD")
       (promote-unreleased! version)
