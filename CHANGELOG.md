@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-27
+
 ### Added
 
 - clj-kondo linters for the step macros, shipped in the jar. Import them with `clj-kondo --lint "$(clojure -Spath)" --dependencies --copy-configs`.
@@ -81,7 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dbos.constants` — status strings and status sets as `.cljc`, shareable with a ClojureScript UI.
 - Application-version targeting, including resolving `:latest` at dispatch time.
 
-[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.4.0...HEAD
+[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/shipclojure/dbos-clj/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/shipclojure/dbos-clj/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/shipclojure/dbos-clj/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/shipclojure/dbos-clj/compare/v0.2.0...v0.2.1
