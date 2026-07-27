@@ -1,0 +1,4 @@
+;; Dogfood the config we publish to consumers, so the library is linted by its
+;; own step rules. The exported copy lives in resources/ and ships in the jar;
+;; see resources/clj-kondo.exports/com.shipclojure/dbos-clj/config.edn.
+{:config-paths ["../resources/clj-kondo.exports/com.shipclojure/dbos-clj"]}

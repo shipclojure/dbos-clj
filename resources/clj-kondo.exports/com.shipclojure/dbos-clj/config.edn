@@ -1,0 +1,56 @@
+;; clj-kondo configuration exported to consumers of com.shipclojure/dbos-clj.
+;;
+;; Picked up automatically by:
+;;   clj-kondo --copy-configs --dependencies --lint "$(clojure -Spath)"
+;;
+;; Every linter below is namespaced under :dbos-clj/ so it can be dialled down
+;; individually in a consumer's .clj-kondo/config.edn, e.g.
+;;   {:linters {:dbos-clj/empty-step-body {:level :off}}}
+{:hooks
+ {:analyze-call
+  {;; Step macros: validate the step spec, the body, and step nesting.
+   dbos.core/run-step hooks.dbos-clj/run-step
+   dbos.core/do-step! hooks.dbos-clj/do-step!
+
+   ;; Workflow-body-only calls: flag them when they appear inside a step body.
+   dbos.core/start-workflow! hooks.dbos-clj/start-workflow!
+   dbos.core/set-event! hooks.dbos-clj/set-event!
+   dbos.core/workflow-sleep hooks.dbos-clj/workflow-sleep
+   dbos.core/get-event hooks.dbos-clj/get-event}}
+
+ :linters
+ {;; The step spec is not a name string / options map / StepOptions, or the
+  ;; options map is missing its required :name.
+  :dbos-clj/invalid-step {:level :error}
+
+  ;; A key in the step options map is unknown (silently ignored at runtime) or
+  ;; carries a value of the wrong type.
+  :dbos-clj/invalid-step-option {:level :warning}
+
+  ;; A step with no body: recorded as having run, but does nothing.
+  :dbos-clj/empty-step-body {:level :warning}
+
+  ;; DBOS steps cannot be nested.
+  :dbos-clj/nested-step {:level :error}
+
+  ;; start-workflow! / set-event! / workflow-sleep / get-event called from
+  ;; inside a step body instead of the workflow body.
+  :dbos-clj/step-body-violation {:level :error}
+
+  ;; `:ret` only, deliberately.
+  ;;
+  ;; An `:args` entry on a `dbos.core` var trips an "Insufficient input." false
+  ;; positive in clj-kondo releases before 2026.07.24 whenever dbos.core's own
+  ;; source is linted alongside the call site. That is not just this repo's
+  ;; `bb lint` — clojure-lsp bundles its own clj-kondo (2026.05.26-SNAPSHOT as
+  ;; of 2026.07.06), so no version pin can keep it out of an editor. `:ret`
+  ;; annotations do not trip it, and every one below is unconditionally true.
+  :type-mismatch
+  {:namespaces
+   {dbos.core
+    ;; `.runStep` with a ThrowingRunnable is void — do-step! never yields a value.
+    {execute-do-step! {:arities {3 {:ret :nil}}}
+     ;; (mapv ...) / (into {} ...) / (assoc ...) — always the collection type.
+     list-app-versions {:arities {1 {:ret :vector}}}
+     register-workflows! {:arities {2 {:ret :map}}}
+     register-workflow! {:arities {2 {:ret :map}}}}}}}}

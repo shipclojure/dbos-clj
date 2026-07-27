@@ -382,6 +382,55 @@ with `dbos-clj` running steps can use the macros that inline the function defini
 
 ```
 
+### Linting steps with clj-kondo
+
+Most of the step rules above are the kind a linter can enforce, so `dbos-clj` ships a clj-kondo config in its jar. Import it once:
+
+```bash
+mkdir -p .clj-kondo
+clj-kondo --lint "$(clojure -Spath)" --dependencies --copy-configs
+```
+
+That drops the config into `.clj-kondo/imports/com.shipclojure/dbos-clj/`, which clj-kondo picks up automatically from then on. Add `.clj-kondo/imports/` to your `.gitignore` and re-run the command when you bump the dependency.
+
+What it catches:
+
+| Linter                          | Level   | Catches                                                                                                                                              |
+|---------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `:dbos-clj/invalid-step`        | error   | A step spec that can never be valid - a keyword, `nil`, a number, a vector - plus a blank step name and an options map missing its required `:name`. |
+| `:dbos-clj/invalid-step-option` | warning | Unknown keys in the options map, and option values of the wrong type.                                                                                |
+| `:dbos-clj/empty-step-body`     | warning | A step with no body: recorded as having run, but does nothing.                                                                                       |
+| `:dbos-clj/nested-step`         | error   | A step inside another step's body.                                                                                                                   |
+| `:dbos-clj/step-body-violation` | error   | `start-workflow!`, `set-event!`, `workflow-sleep` or `get-event` called from inside a step body.                                                     |
+
+The one worth the install on its own is the unknown-option check. `->step-options` destructures the map, so a typo is not an error - it is silently dropped, and your step quietly stops retrying:
+
+```clojure
+(dbos/run-step dbos {:name "fetch-user" :max-attemps 3}   ; :max-attempts
+  (api/get-user id))
+;;                                      ^ warning: Unknown step option
+;;                                        :max-attemps - it is silently ignored.
+```
+
+And the replay rules from the section above become mechanical:
+
+```clojure
+(dbos/run-step dbos "ship"
+  (dbos/start-workflow! dbos :order/ship {} row))
+;; ^ error: `start-workflow!` must be called from the workflow body, not from
+;;   inside `run-step` - a step body is skipped on replay, so the child would
+;;   never be started again and parent linkage is lost.
+```
+
+The config also carries `:ret` type annotations for `dbos.core` - notably that `execute-do-step!` (what `do-step!` expands to) returns nil, so using a `do-step!` result gets flagged. They are `:ret`-only on purpose: an `:args` annotation trips an `Insufficient input.` false positive in clj-kondo builds older than `2026.07.24`, including the one clojure-lsp bundles.
+
+Every linter is namespaced under `:dbos-clj/`, so you can turn any of them down in your own `.clj-kondo/config.edn`:
+
+```clojure
+{:linters {:dbos-clj/empty-step-body {:level :off}}}
+```
+
+The hooks only add findings - they never rewrite your code, so step bodies keep their normal analysis (arities, unresolved symbols, unused bindings, and type inference on locals).
 
 ## Storage
 

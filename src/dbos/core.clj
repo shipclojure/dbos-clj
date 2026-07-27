@@ -97,8 +97,9 @@
   `(execute-do-step! ~dbos ~step (fn [] ~@body)))
 
 (comment
-
-  (do-step! ::hello {:name "Hello"} (prn 1)))
+  ;; `::dbos` stands in for a live instance — fine here because
+  ;; `execute-do-step!` is the redef seam (see dbos.core-test).
+  (do-step! ::dbos {:name "Hello"} (prn 1)))
 
 (defn workflow-sleep
   "Durably sleep the current workflow — the wake-up time is persisted, not the

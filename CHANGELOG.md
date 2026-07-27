@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- clj-kondo linters for the step macros, shipped in the jar. Import them with `clj-kondo --lint "$(clojure -Spath)" --dependencies --copy-configs`.
+
+  | Linter | Level | Catches |
+  | --- | --- | --- |
+  | `:dbos-clj/invalid-step` | error | Step spec that is not a name string, options map or `StepOptions`; blank step name; options map without `:name`. |
+  | `:dbos-clj/invalid-step-option` | warning | Unknown option keys — `->step-options` drops them, so `:max-attemps` silently disables retries — and wrong-typed option values. |
+  | `:dbos-clj/empty-step-body` | warning | Step with no body. |
+  | `:dbos-clj/nested-step` | error | Step inside another step. |
+  | `:dbos-clj/step-body-violation` | error | `start-workflow!`, `set-event!`, `workflow-sleep` or `get-event` inside a step body. |
+
+  Also `:ret` type annotations for `dbos.core`, so `execute-do-step!`'s nil return and the collection types of `register-workflow(s)!` / `list-app-versions` flow into the type checker.
+
+  Hooks only add findings, so step bodies keep their normal analysis.
+
+### Changed
+
+- Pin clj-kondo `2026.07.24` in `.mise.toml`, matching the new `clj-kondo/clj-kondo` test dependency.
+
 ## [0.4.0] - 2026-07-26
 
 ### Changed

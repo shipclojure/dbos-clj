@@ -22,6 +22,11 @@
 (def ^:private class-dir "target/classes")
 (def ^:private src-dirs ["src"])
 
+;; Carries clj-kondo.exports/, so consumers get the step linters from
+;; `clj-kondo --copy-configs --dependencies`. Kept out of `src-dirs` so the
+;; generated pom keeps advertising sources only.
+(def ^:private resource-dirs ["resources"])
+
 (defn- git-tag-version
   "The version from the latest `v*` git tag (leading `v` stripped), or nil
   when there is no matching tag / git is unavailable."
@@ -57,7 +62,7 @@
   (clean nil)
   (let [version (resolve-version version)
         basis (b/create-basis {:project "deps.edn"})]
-    (b/copy-dir {:src-dirs src-dirs
+    (b/copy-dir {:src-dirs (into src-dirs resource-dirs)
                  :target-dir class-dir})
     (b/write-pom {:class-dir class-dir
                   :lib lib

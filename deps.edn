@@ -11,7 +11,8 @@
    :extra-paths ["build"]}
   :dev
   {:extra-deps {com.taoensso/telemere {:mvn/version "1.2.0"}
-                com.taoensso/telemere-slf4j {:mvn/version "1.2.0"}}
+                com.taoensso/telemere-slf4j {:mvn/version "1.2.0"}
+                clj-kondo/clj-kondo {:mvn/version "2026.07.24"}}
    :extra-paths ["dev" "test" "example/resources" "example/src"]}
 
   ;; No :main-opts — launchpad puts this on the REPL classpath and they'd
@@ -21,7 +22,8 @@
    {lambdaisland/kaocha {:mvn/version "1.91.1392"}
     integrant/integrant {:mvn/version "1.0.1"}
     com.taoensso/telemere {:mvn/version "1.2.0"}
-    com.taoensso/telemere-slf4j {:mvn/version "1.2.0"}}
+    com.taoensso/telemere-slf4j {:mvn/version "1.2.0"}
+    clj-kondo/clj-kondo {:mvn/version "2026.07.24"}}
    :extra-paths ["test" "example/src" "example/resources"]}
 
   ;; Kaocha entrypoint. Always paired with :test alias

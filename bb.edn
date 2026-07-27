@@ -17,8 +17,8 @@
          db:psql {:doc "Open a psql shell on the dev database."
                   :task (shell "docker compose exec postgres psql -U dbos -d dbos_clj_dev")}
 
-         lint {:doc "Linting project's code"
-               :task (shell "clj-kondo" "--parallel" "--lint" "src" "test")}
+         lint {:doc "Linting project's code. lint-fixtures/ is excluded on purpose — it is the fixture for the exported step linters and is meant to fail (see test/dbos/kondo_test.clj)."
+               :task (shell "clj-kondo" "--parallel" "--lint" "src" "test" "dev" "example")}
 
          test {:doc "Run the tests. Needs the dev Postgres (`bb dev` or `bb db:up`). Extra args go to kaocha."
                :task (apply shell "bin/kaocha" *command-line-args*)}
@@ -40,7 +40,9 @@
                                 {"CLOJARS_USERNAME" "ovistoica"
                                  "CLOJARS_PASSWORD" (make/op-read "op://Personal/Clojars Token/credential")}}
                                "clojure -T:build release")}
+         ;; resources/ carries the exported clj-kondo hook, lint-fixtures/ the
+         ;; lint fixture — both are real Clojure and worth keeping formatted.
          format:check {:doc "Check code formatting with cljfmt"
-                       :task (shell "cljfmt" "check" "src" "test" "dev" "example")}
+                       :task (shell "cljfmt" "check" "src" "test" "dev" "example" "resources" "lint-fixtures")}
          format:project {:doc "Run cljfmt formatting on the entire codebase"
-                         :task (shell "cljfmt" "fix" "src" "test" "dev" "example")}}}
+                         :task (shell "cljfmt" "fix" "src" "test" "dev" "example" "resources" "lint-fixtures")}}}

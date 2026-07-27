@@ -8,6 +8,28 @@ on:
   workflow_call:
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/cache-clojure-deps
+        with:
+          key-label: 'lint'
+
+      # Installs java, clojure, babashka and clj-kondo as pinned in .mise.toml
+      - uses: jdx/mise-action@v2
+
+      - name: Lint
+        run: bb lint
+
+      # Asserts the clj-kondo config we publish to consumers still produces
+      # exactly the findings lint-fixtures/ is annotated with. Needs no database.
+      - name: Exported clj-kondo config
+        run: clojure -M:test:test-runner --focus dbos.kondo-test
+
   test:
     name: Test
     runs-on: ubuntu-latest
