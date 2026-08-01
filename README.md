@@ -707,6 +707,16 @@ To tag *native* backend calls too — a bare `t/log!`, a `μ/log`, an MDC-aware 
 The bridge is off by default, so nothing is injected into your backend's own context unless you ask for it. It is supported by the Telemere, Timbre, μ/log and SLF4J (MDC-capable provider) backends.
 
 
+## AI agent skill
+
+The repo ships an [agent skill](skills/dbos-clj-workflows/) for AI coding assistants that support the skills format (Claude Code, ECA, etc.). It teaches an agent the durable-execution mental model, the step rules, dispatch options, and the common patterns (fan-out, schedules, client/worker splits) so it writes correct workflows on the first pass.
+
+Point your assistant's skill directory at it, or copy it in:
+
+```bash
+cp -r skills/dbos-clj-workflows ~/.claude/skills/
+```
+
 ## Development
 
 ```bash

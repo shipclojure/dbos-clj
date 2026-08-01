@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An AI agent skill under `skills/dbos-clj-workflows/` — teaches coding assistants (Claude Code, ECA, ...) the durable-execution model, step rules and dispatch patterns for writing correct dbos-clj workflows. See the "AI agent skill" section in the README.
+
 ## [0.5.0] - 2026-07-27
 
 ### Added
