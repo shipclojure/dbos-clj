@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- REPL dev mode: pass the sentinel `:dbos.core/dev` instead of a live DBOS instance and workflow bodies just run — no Postgres, no `create`/`launch!`. Step bodies execute inline (step options still validated, `do-step!` still returns nil, failures throw immediately with no retries), `workflow-sleep` becomes a plain logged `Thread/sleep`, and `set-event!` only logs. See "REPL-driven development" in the README.
 - An AI agent skill under `skills/dbos-clj-workflows/` — teaches coding assistants (Claude Code, ECA, ...) the durable-execution model, step rules and dispatch patterns for writing correct dbos-clj workflows. See the "AI agent skill" section in the README.
 
 ## [0.5.0] - 2026-07-27
