@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-06
+
 ### Added
 
 - REPL dev mode: pass the sentinel `:dbos.core/dev` instead of a live DBOS instance and workflow bodies just run — no Postgres, no `create`/`launch!`. Step bodies execute inline (step options still validated, `do-step!` still returns nil, failures throw immediately with no retries), `workflow-sleep` becomes a plain logged `Thread/sleep`, and `set-event!` only logs. See "REPL-driven development" in the README.
@@ -88,7 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dbos.constants` — status strings and status sets as `.cljc`, shareable with a ClojureScript UI.
 - Application-version targeting, including resolving `:latest` at dispatch time.
 
-[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.5.0...HEAD
+[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/shipclojure/dbos-clj/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/shipclojure/dbos-clj/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/shipclojure/dbos-clj/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/shipclojure/dbos-clj/compare/v0.2.1...v0.3.0
