@@ -5,6 +5,44 @@
 
 A small wrapper over [dbos-transact-java](https://github.com/dbos-inc/dbos-transact-java) to support durable workflows backed by PostgreSQL or CockroachDB in Clojure.
 
+## Table of contents
+
+- [Why use it?](#why-use-it)
+- [Installation](#installation)
+- [Getting started](#getting-started)
+- [Configuration & lifecycle](#configuration--lifecycle)
+  - [Config keys](#config-keys)
+  - [Queues](#queues)
+- [Workflow dispatch](#workflow-dispatch)
+  - [App version](#app-version)
+  - [Child workflows](#child-workflows)
+  - [Scheduled workflows](#scheduled-workflows)
+- [Writing workflows](#writing-workflows)
+  - [What should you wrap in a dbos step](#what-should-you-wrap-in-a-dbos-step)
+  - [The step macros in more details](#the-step-macros-in-more-details)
+  - [Linting steps with clj-kondo](#linting-steps-with-clj-kondo)
+  - [REPL-driven development](#repl-driven-development)
+- [Storage](#storage)
+- [Serialization](#serialization)
+  - [Injecting your own transit handlers](#injecting-your-own-transit-handlers)
+  - [Unhandled types (the `java-object` box)](#unhandled-types-the-java-object-box)
+  - [Bringing your own serializer](#bringing-your-own-serializer)
+- [DBOS Client](#dbos-client)
+- [Querying workflows](#querying-workflows)
+  - [Inspecting a whole workflow tree](#inspecting-a-whole-workflow-tree)
+- [Cancelling & resuming workflows](#cancelling--resuming-workflows)
+- [Events](#events)
+- [Logging](#logging)
+  - [Step context inside step bodies](#step-context-inside-step-bodies)
+- [AI agent skill](#ai-agent-skill)
+- [Development](#development)
+  - [Tests](#tests)
+  - [Logs](#logs)
+  - [Releasing](#releasing)
+  - [Other tasks](#other-tasks)
+  - [Configuration](#configuration)
+- [Acknowledgments](#acknowledgments)
+
 ## Why use it?
 
 If you need durable execution & *resumable workflows* (read a great write-up on it here: [Demystifying Determinism in Durable Execution](https://jack-vanlightly.com/blog/2025/11/24/demystifying-determinism-in-durable-execution)) - DBOS is a much more lightweight alternative to something like [Temporal](https://temporal.io/) where you need to deploy a separate service just to start using it.
@@ -431,6 +469,38 @@ Every linter is namespaced under `:dbos-clj/`, so you can turn any of them down 
 ```
 
 The hooks only add findings - they never rewrite your code, so step bodies keep their normal analysis (arities, unresolved symbols, unused bindings, and type inference on locals).
+
+### REPL-driven development
+
+Iterating on a workflow body shouldn't require Postgres, `create`, or `launch!`. Pass the keyword sentinel `:dbos.core/dev` instead of a live DBOS instance and the body just runs:
+
+```clojure
+(require '[dbos.core :as dbos])
+
+(defn process-order
+  [dbos {:keys [order-id]}]
+  (let [order (dbos/run-step dbos "fetch-order"
+                (db/fetch-order order-id))]
+    (dbos/do-step! dbos {:name "notify" :max-attempts 3}
+      (email/send-confirmation! order))
+    (dbos/set-event! dbos :order/status "done")
+    order))
+
+;; In the REPL - no DBOS instance, no database:
+(process-order ::dbos/dev {:order-id "o-123"})
+```
+
+Semantics under the dev sentinel:
+
+- Step bodies run **inline** on the calling thread - nothing is persisted, nothing is durable, no replay.
+- **No retries** - a failing step throws immediately, even with `:max-attempts` set. In the REPL you want the exception, not three delayed attempts.
+- Step options are still **validated eagerly** (a map missing `:name`, a blank name, etc. throw `ex-info` exactly like normal DBOS execution would), so a bad step spec doesn't hide until deploy.
+- `do-step!` still returns `nil`, matching normal DBOS execution.
+- `workflow-sleep` becomes a plain (non-durable) `Thread/sleep` of the same duration, with a log line so long sleeps are visible.
+- `set-event!` only logs the event; nothing is stored, and `get-event` can't read it back.
+- No support for starting child workflows under `:dbos.core/dev` execution
+
+Step logging context (see [Logging](#logging)) is preserved, so dev-mode runs produce the same `:workflow/step`-tagged log lines as production.
 
 ## Storage
 

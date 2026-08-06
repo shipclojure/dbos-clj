@@ -64,35 +64,57 @@
         (thunk)))))
 
 (defn execute-step
-  "Run a value-returning step via DBOS (result persisted). Redef seam for tests."
-  [^DBOS dbos step thunk]
-  (.runStep dbos
-            ^ThrowingSupplier (reify ThrowingSupplier
-                                (execute [_]
-                                  (run-in-step-ctx step thunk)))
-            ^StepOptions (->step-options step)))
+  "Run a value-returning step via DBOS (result persisted). Redef seam for tests.
+
+  Pass `::dev` instead of a DBOS instance to run the step body inline (REPL/dev
+  mode): no durability and no retries (failures throw immediately), but the
+  step options are still validated eagerly via `->step-options`."
+  [dbos step thunk]
+  (if (= dbos ::dev)
+    (do (->step-options step) ; surface invalid steps in dev, like prod does
+        (run-in-step-ctx step thunk))
+    (.runStep ^DBOS dbos
+              ^ThrowingSupplier (reify ThrowingSupplier
+                                  (execute [_]
+                                    (run-in-step-ctx step thunk)))
+              ^StepOptions (->step-options step))))
 
 (defn execute-do-step!
-  "Run a side-effect-only step via DBOS (result NOT persisted). Redef seam for tests."
-  [^DBOS dbos step thunk]
-  (.runStep dbos
-            ^ThrowingRunnable (reify ThrowingRunnable
-                                (execute [_]
-                                  (run-in-step-ctx step thunk)
-                                  nil))
-            ^StepOptions (->step-options step)))
+  "Run a side-effect-only step via DBOS (result NOT persisted). Redef seam for tests.
+
+  Pass `::dev` instead of a DBOS instance to run the step body inline (REPL/dev
+  mode): no durability and no retries (failures throw immediately), but the
+  step options are still validated eagerly via `->step-options`. Returns nil in
+  both modes."
+  [dbos step thunk]
+  (if (= dbos ::dev)
+    (do (->step-options step) ; surface invalid steps in dev, like prod does
+        (run-in-step-ctx step thunk)
+        nil)
+    (.runStep ^DBOS dbos
+              ^ThrowingRunnable (reify ThrowingRunnable
+                                  (execute [_]
+                                    (run-in-step-ctx step thunk)
+                                    nil))
+              ^StepOptions (->step-options step))))
 
 (defmacro run-step
   "Run a workflow step that RETURNS a value (persisted for durable replay).
   `step` is a name string, or an options map for retries (see `->step-options`),
-  or a pre-built StepOptions."
+  or a pre-built StepOptions.
+
+  Pass `:dbos.core/dev` as `dbos` to run the body inline for REPL-driven
+  development: no durability, no retries, options still validated."
   [dbos step & body]
   `(execute-step ~dbos ~step (fn [] ~@body)))
 
 (defmacro do-step!
   "Run a workflow step for SIDE-EFFECTS only; result NOT persisted.
   `step` is a name string, or an options map for retries (see `->step-options`),
-  or a pre-built StepOptions."
+  or a pre-built StepOptions.
+
+  Pass `:dbos.core/dev` as `dbos` to run the body inline for REPL-driven
+  development: no durability, no retries, options still validated."
   [dbos step & body]
   `(execute-do-step! ~dbos ~step (fn [] ~@body)))
 
@@ -103,17 +125,34 @@
 
 (defn workflow-sleep
   "Durably sleep the current workflow — the wake-up time is persisted, not the
-  thread, so it survives restarts."
-  [^DBOS dbos ^Duration duration]
-  (.sleep dbos duration))
+  thread, so it survives restarts.
+
+  With `:dbos.core/dev` passed as `dbos` param, this is a plain (non-durable)
+  `Thread/sleep` of the same duration, logged so long REPL sleeps are visible."
+  [dbos ^Duration duration]
+  (if (= dbos ::dev)
+    (do (trove/log! {:level :info
+                     :id :workflow/dev-sleep
+                     :msg "Dev-mode sleep (not durable)"
+                     :data {:duration duration}})
+        (Thread/sleep (.toMillis duration)))
+    (.sleep ^DBOS dbos duration)))
 
 ;; -- Events (generic key/value channel; progress is one use) ------------------
 
 (defn set-event!
   "Publish `value` under `event-key` on the running workflow (generic key/value
-  channel). Body-only. Last write wins; durable and idempotent under replay."
-  [^DBOS dbos event-key value]
-  (.setEvent dbos (name event-key) value))
+  channel). Body-only. Last write wins; durable and idempotent under replay.
+
+  With `::dev` the event is only logged (nothing is persisted); returns nil in
+  both modes."
+  [dbos event-key value]
+  (if (= dbos ::dev)
+    (do (trove/log! {:level :info :id :workflow/dev-set-event
+                     :msg "Dev-mode set-event! (not persisted)"
+                     :data {:event-key event-key :value value}})
+        nil)
+    (.setEvent ^DBOS dbos (name event-key) value)))
 
 (defn get-event
   "Read the latest value under `event-key` for `workflow-id`, or nil. Call from
