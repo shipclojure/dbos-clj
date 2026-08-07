@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- BREAKING: Renamed `:dbos.core/dev` -> `:dbos.core/passthrough` for inline execution of step bodies. Note: In theory this is a breaking change if you used `:dbos.core/dev` in your tests or dev code
+
 ## [0.6.0] - 2026-08-06
 
 ### Added
