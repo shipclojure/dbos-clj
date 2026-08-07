@@ -35,42 +35,42 @@
 ;; -- Dev mode (::core/dev sentinel; inline, no durability) --------------------
 
 (deftest dev-run-step-returns-body-value-test
-  (testing "run-step with the dev sentinel runs the body inline and returns its value"
-    (is (= 42 (core/run-step ::core/dev "dev-step" (+ 40 2)))))
+  (testing "run-step with the passthrough sentinel runs the body inline and returns its value"
+    (is (= 42 (core/run-step ::core/passthrough "dev-step" (+ 40 2)))))
 
   (testing "an options-map step also returns the body value"
-    (is (= :done (core/run-step ::core/dev {:name "dev-step" :max-attempts 3} :done)))))
+    (is (= :done (core/run-step ::core/passthrough {:name "dev-step" :max-attempts 3} :done)))))
 
 (deftest dev-do-step-returns-nil-and-runs-effect-test
-  (testing "do-step! with the dev sentinel returns nil and runs the side effect"
+  (testing "do-step! with the passthrough sentinel returns nil and runs the side effect"
     (let [effects (atom [])]
-      (is (nil? (core/do-step! ::core/dev "dev-step" (swap! effects conj :sent))))
+      (is (nil? (core/do-step! ::core/passthrough "dev-step" (swap! effects conj :sent))))
       (is (= [:sent] @effects)))))
 
 (deftest dev-invalid-step-throws-test
   (testing "an options map without a :name throws in dev mode"
     (is (thrown? clojure.lang.ExceptionInfo
                  #_{:clj-kondo/ignore [:dbos-clj/invalid-step]}
-                 (core/run-step ::core/dev {} :never))))
+                 (core/run-step ::core/passthrough {} :never))))
 
   (testing "a blank step name throws in dev mode"
     (is (thrown? clojure.lang.ExceptionInfo
                  #_{:clj-kondo/ignore [:dbos-clj/invalid-step]}
-                 (core/run-step ::core/dev "" :never)))))
+                 (core/run-step ::core/passthrough "" :never)))))
 
 (deftest dev-workflow-sleep-test
-  (testing "workflow-sleep with the dev sentinel completes and returns nil"
-    (is (nil? (core/workflow-sleep ::core/dev (Duration/ofMillis 5))))))
+  (testing "workflow-sleep with the passthrough sentinel completes and returns nil"
+    (is (nil? (core/workflow-sleep ::core/passthrough (Duration/ofMillis 5))))))
 
 (deftest dev-set-event-test
-  (testing "set-event! with the dev sentinel returns nil and does not throw"
-    (is (nil? (core/set-event! ::core/dev :progress {:pct 50})))))
+  (testing "set-event! with the passthrough sentinel returns nil and does not throw"
+    (is (nil? (core/set-event! ::core/passthrough :progress {:pct 50})))))
 
 (deftest dev-exception-propagates-test
   (testing "a throwing body propagates immediately even with :max-attempts (no retries)"
     (let [attempts (atom 0)]
       (is (thrown? IllegalStateException
-                   (core/run-step ::core/dev {:name "dev-step" :max-attempts 3}
+                   (core/run-step ::core/passthrough {:name "dev-step" :max-attempts 3}
                                   (swap! attempts inc)
                                   (throw (IllegalStateException. "boom")))))
       (is (= 1 @attempts) "the body ran exactly once"))))

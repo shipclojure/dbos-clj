@@ -66,12 +66,12 @@
 (defn execute-step
   "Run a value-returning step via DBOS (result persisted). Redef seam for tests.
 
-  Pass `::dev` instead of a DBOS instance to run the step body inline (REPL/dev
+  Pass `::passthrough` instead of a DBOS instance to run the step body inline (REPL/dev
   mode): no durability and no retries (failures throw immediately), but the
   step options are still validated eagerly via `->step-options`."
   [dbos step thunk]
-  (if (= dbos ::dev)
-    (do (->step-options step) ; surface invalid steps in dev, like prod does
+  (if (= dbos ::passthrough)
+    (do (->step-options step) ; surface invalid steps in passthrough, like normal execution does
         (run-in-step-ctx step thunk))
     (.runStep ^DBOS dbos
               ^ThrowingSupplier (reify ThrowingSupplier
@@ -82,13 +82,13 @@
 (defn execute-do-step!
   "Run a side-effect-only step via DBOS (result NOT persisted). Redef seam for tests.
 
-  Pass `::dev` instead of a DBOS instance to run the step body inline (REPL/dev
+  Pass `::passthrough` instead of a DBOS instance to run the step body inline (REPL/dev
   mode): no durability and no retries (failures throw immediately), but the
   step options are still validated eagerly via `->step-options`. Returns nil in
   both modes."
   [dbos step thunk]
-  (if (= dbos ::dev)
-    (do (->step-options step) ; surface invalid steps in dev, like prod does
+  (if (= dbos ::passthrough)
+    (do (->step-options step) ; surface invalid steps in passthrough, like normal execution does
         (run-in-step-ctx step thunk)
         nil)
     (.runStep ^DBOS dbos
@@ -103,7 +103,7 @@
   `step` is a name string, or an options map for retries (see `->step-options`),
   or a pre-built StepOptions.
 
-  Pass `:dbos.core/dev` as `dbos` to run the body inline for REPL-driven
+  Pass `:dbos.core/passthrough` as `dbos` to run the body inline for REPL-driven
   development: no durability, no retries, options still validated."
   [dbos step & body]
   `(execute-step ~dbos ~step (fn [] ~@body)))
@@ -127,10 +127,10 @@
   "Durably sleep the current workflow — the wake-up time is persisted, not the
   thread, so it survives restarts.
 
-  With `:dbos.core/dev` passed as `dbos` param, this is a plain (non-durable)
+  With `:dbos.core/passthrough` passed as `dbos` param, this is a plain (non-durable)
   `Thread/sleep` of the same duration, logged so long REPL sleeps are visible."
   [dbos ^Duration duration]
-  (if (= dbos ::dev)
+  (if (= dbos ::passthrough)
     (do (trove/log! {:level :info
                      :id :workflow/dev-sleep
                      :msg "Dev-mode sleep (not durable)"
@@ -147,7 +147,7 @@
   With `::dev` the event is only logged (nothing is persisted); returns nil in
   both modes."
   [dbos event-key value]
-  (if (= dbos ::dev)
+  (if (= dbos ::passthrough)
     (do (trove/log! {:level :info :id :workflow/dev-set-event
                      :msg "Dev-mode set-event! (not persisted)"
                      :data {:event-key event-key :value value}})

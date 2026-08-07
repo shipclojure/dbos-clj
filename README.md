@@ -487,18 +487,18 @@ Iterating on a workflow body shouldn't require Postgres, `create`, or `launch!`.
     order))
 
 ;; In the REPL - no DBOS instance, no database:
-(process-order ::dbos/dev {:order-id "o-123"})
+(process-order ::dbos/passthrough {:order-id "o-123"})
 ```
 
-Semantics under the dev sentinel:
+Semantics under the passthrough sentinel:
 
 - Step bodies run **inline** on the calling thread - nothing is persisted, nothing is durable, no replay.
-- **No retries** - a failing step throws immediately, even with `:max-attempts` set. In the REPL you want the exception, not three delayed attempts.
-- Step options are still **validated eagerly** (a map missing `:name`, a blank name, etc. throw `ex-info` exactly like normal DBOS execution would), so a bad step spec doesn't hide until deploy.
+- **No retries** - a failing step throws immediately, even with `:max-attempts` set.
+- Step options are still **validated eagerly** (a map missing `:name`, a blank name, etc. throw `ex-info` exactly like normal DBOS execution would).
 - `do-step!` still returns `nil`, matching normal DBOS execution.
 - `workflow-sleep` becomes a plain (non-durable) `Thread/sleep` of the same duration, with a log line so long sleeps are visible.
 - `set-event!` only logs the event; nothing is stored, and `get-event` can't read it back.
-- No support for starting child workflows under `:dbos.core/dev` execution
+- No support for starting child workflows under `:dbos.core/passthrough` execution
 
 Step logging context (see [Logging](#logging)) is preserved, so dev-mode runs produce the same `:workflow/step`-tagged log lines as production.
 
