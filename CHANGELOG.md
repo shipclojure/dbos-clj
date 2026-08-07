@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-07
+
 ### Changed
 - BREAKING: Renamed `:dbos.core/dev` -> `:dbos.core/passthrough` for inline execution of step bodies. Note: In theory this is a breaking change if you used `:dbos.core/dev` in your tests or dev code
 
@@ -93,7 +95,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dbos.constants` — status strings and status sets as `.cljc`, shareable with a ClojureScript UI.
 - Application-version targeting, including resolving `:latest` at dispatch time.
 
-[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.6.0...HEAD
+[unreleased]: https://github.com/shipclojure/dbos-clj/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/shipclojure/dbos-clj/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/shipclojure/dbos-clj/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/shipclojure/dbos-clj/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/shipclojure/dbos-clj/compare/v0.3.0...v0.4.0
